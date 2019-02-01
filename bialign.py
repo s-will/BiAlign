@@ -28,23 +28,22 @@ class BiAligner:
       # the dynamic programming matrix
       self.M = None
 
-      # list of recursion cases
-      # 
-      # per case:
-      #       pair of access info
-      #     and 
-      #       function that returns list of case score components
-      self.recCases = [
-         # synchronous cases
-         ((1,1,1), lambda i,j,k: [self.mu1(i,j), self.mu2(i,k)]),
-         ((1,0,0), lambda i,j,k: [self.g1A(i),   self.g2A(i)]),
-         ((0,1,1), lambda i,j,k: [self.g1B(j),   self.g2B(k)]),
-         # shifting cases
-         ((1,1,0), lambda i,j,k: [self.mu1(i,j), self.g2A(i), self.Delta()]),
-         ((1,0,1), lambda i,j,k: [self.mu2(i,k), self.g1A(i), self.Delta()]),
-         ((0,1,0), lambda i,j,k: [self.g1A(i),   self.Delta()]),
-         ((0,0,1), lambda i,j,k: [self.g2B(k),   self.Delta()])
-      ]
+   # iterator over recursion cases
+   # 
+   # per case:
+   #       pair of access info
+   #     and 
+   #       function that returns list of case score components
+   def recursionCases(self,i,j,k):
+      # synchronous cases
+      yield ((1,1,1), [self.mu1(i,j), self.mu2(i,k)])
+      yield ((1,0,0), [self.g1A(i),   self.g2A(i)])
+      yield ((0,1,1), [self.g1B(j),   self.g2B(k)])
+      # shifting
+      yield ((1,1,0), [self.mu1(i,j), self.g2A(i), self.Delta()])
+      yield ((1,0,1), [self.mu2(i,k), self.g1A(i), self.Delta()])
+      yield ((0,1,0), [self.g1A(i),   self.Delta()])
+      yield ((0,0,1), [self.g2B(k),   self.Delta()])
 
    # plus operator (max in optimization; sum in pf)
    def plus(self, xs):
@@ -58,13 +57,14 @@ class BiAligner:
       return sum(xs)
 
    def guardCase(self,x,i,j,k):
-      (io,jo,ko) = self.recCases[x][0]
+      (io,jo,ko) = x[0]
       return i-io>=0 and j-jo>=0 and k-ko>=0
 
    def evalCase(self,x,i,j,k):
-      (io,jo,ko) = self.recCases[x][0]
+      (io,jo,ko) = x[0]
       return self.mul([self.M[i-io,j-jo,k-ko],
-                       self.mul( self.recCases[x][1](i,j,k))])
+                       self.mul(x[1])
+                      ])
 
    # make bpp symmetric (based on upper triangular matrix)
    # and set diagonal to unpaired probs
@@ -146,7 +146,6 @@ class BiAligner:
    def optimize(self):
       lenA = self.rnaA["len"]
       lenB = self.rnaB["len"]
-      numCases = len(self.recCases)
 
       self.M = np.zeros((lenA+1,lenB+1,lenB+1), dtype=int)
 
@@ -154,7 +153,7 @@ class BiAligner:
          for j in range(0,lenB+1):
             for k in range(0,lenB+1):
                self.M[i,j,k] = self.plus([ self.evalCase(x,i,j,k) 
-                                           for x in range(numCases)
+                                           for x in self.recursionCases(i,j,k)
                                            if self.guardCase(x,i,j,k) ])
       return self.M[lenA,lenB,lenB]
 
@@ -163,30 +162,17 @@ class BiAligner:
    def traceback(self):
       lenA = self.rnaA["len"]
       lenB = self.rnaB["len"]
-      numCases = len(self.recCases)
 
       trace=[]
 
       def trace_from(i,j,k):
-         found=False
-         for x in range(numCases):
+         for x in self.recursionCases(i,j,k):
             if self.guardCase(x,i,j,k):
                if self.evalCase(x,i,j,k) == self.M[i,j,k]:
-                  found=True
-                  (io,jo,ko) = self.recCases[x][0]
+                  (io,jo,ko) = x[0]
                   trace.append((io,jo,ko))
                   trace_from(i-io,j-jo,k-ko)
                   break
-         
-         # DEBUGGING
-         if not found and (i,j,k) != (0,0,0):
-            print("********* ERROR",
-                  "lost trace at M[",i,j,k,"] =",self.M[i,j,k])
-            # for x in range(numCases):
-            #    if self.guardCase(x,i,j,k):
-            #       (io,jo,ko) = self.recCases[x][0]
-            #       print("  case" ,(io,jo,ko),self.evalCase(x,i,j,k))
-            #       break
 
       trace_from(lenA,lenB,lenB)
       return list(reversed(trace))
@@ -194,8 +180,8 @@ class BiAligner:
    # decode trace to alignment strings
    def decode_trace(self,trace):
       seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaB["seq"])
-      pos = [0,0,0]
-      alignment = [ "","","" ]
+      pos = [0]*3
+      alignment = [""]*3
       for i,y in enumerate(trace):
          for s in range(3):
             if (y[s]==0):
@@ -211,10 +197,10 @@ class BiAligner:
       for i,y in enumerate(trace):
          for k in range(3): pos[k] += y[k]
          # lookup case
-         for x,c in enumerate(self.recCases):
-            if c[0] == y:
-               print(x,y,
-                     self.recCases[x][1](pos[0],pos[1],pos[2]),
+         for x in self.recursionCases(pos[0],pos[1],pos[2]):
+            if x[0] == y:
+               print(y,
+                     x[1],
                      "-->",
                      self.evalCase(x,pos[0],pos[1],pos[2]))
                break
