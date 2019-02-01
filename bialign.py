@@ -14,7 +14,7 @@ class BiAligner:
       # some parametrization
       self._sequence_match_similarity = 100
       self._sequence_mismatch_similarity = -50
-      self._structure_weight = 400
+      self._structure_weight = 200
       self._gap_cost = -50
       self._shift_cost = -50
 
@@ -36,21 +36,14 @@ class BiAligner:
       #       function that returns list of case score components
       self.recCases = [
          # synchronous cases
-         ((1,1,1), 
-          lambda i,j,k: [self.M[i-1,j-1,k-1], self.mu1(i,j), self.mu2(i,k)]),
-         ((1,0,0),
-          lambda i,j,k: [self.M[i-1,j,k],     self.g1A(i),   self.g2A(i)]),
-         ((0,1,1),
-          lambda i,j,k: [self.M[i,j-1,k-1],   self.g1B(j),   self.g2B(k)]),
+         ((1,1,1), lambda i,j,k: [self.mu1(i,j), self.mu2(i,k)]),
+         ((1,0,0), lambda i,j,k: [self.g1A(i),   self.g2A(i)]),
+         ((0,1,1), lambda i,j,k: [self.g1B(j),   self.g2B(k)]),
          # shifting cases
-         ((1,1,0), 
-          lambda i,j,k: [self.M[i-1,j-1,k], self.mu1(i,j), self.g2A(i), self.Delta()]),
-         ((1,0,1),
-          lambda i,j,k: [self.M[i-1,j,k-1], self.mu2(i,k), self.g1A(i), self.Delta()]),
-         ((0,1,0),
-          lambda i,j,k: [self.M[i,j-1,k],   self.g1A(i),   self.Delta()]),
-         ((0,0,1),
-          lambda i,j,k: [self.M[i,j,k-1],   self.g2B(k),   self.Delta()])
+         ((1,1,0), lambda i,j,k: [self.mu1(i,j), self.g2A(i), self.Delta()]),
+         ((1,0,1), lambda i,j,k: [self.mu2(i,k), self.g1A(i), self.Delta()]),
+         ((0,1,0), lambda i,j,k: [self.g1A(i),   self.Delta()]),
+         ((0,0,1), lambda i,j,k: [self.g2B(k),   self.Delta()])
       ]
 
    # plus operator (max in optimization; sum in pf)
@@ -69,7 +62,9 @@ class BiAligner:
       return i-io>=0 and j-jo>=0 and k-ko>=0
 
    def evalCase(self,x,i,j,k):
-      return self.mul( self.recCases[x][1](i,j,k) )
+      (io,jo,ko) = self.recCases[x][0]
+      return self.mul([self.M[i-io,j-jo,k-ko],
+                       self.mul( self.recCases[x][1](i,j,k))])
 
    # make bpp symmetric (based on upper triangular matrix)
    # and set diagonal to unpaired probs
