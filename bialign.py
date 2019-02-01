@@ -36,20 +36,20 @@ class BiAligner:
       #       function that returns list of case score components
       self.recCases = [
          # synchronous cases
-         ((-1,-1,-1), 
+         ((1,1,1), 
           lambda i,j,k: [self.M[i-1,j-1,k-1], self.mu1(i,j), self.mu2(i,k)]),
-         ((-1,0,0),
+         ((1,0,0),
           lambda i,j,k: [self.M[i-1,j,k],     self.g1A(i),   self.g2A(i)]),
-         ((0,-1,-1),
+         ((0,1,1),
           lambda i,j,k: [self.M[i,j-1,k-1],   self.g1B(j),   self.g2B(k)]),
          # shifting cases
-         ((-1,-1,0), 
+         ((1,1,0), 
           lambda i,j,k: [self.M[i-1,j-1,k], self.mu1(i,j), self.g2A(i), self.Delta()]),
-         ((-1,0,-1),
+         ((1,0,1),
           lambda i,j,k: [self.M[i-1,j,k-1], self.mu2(i,k), self.g1A(i), self.Delta()]),
-         ((0,-1,0),
+         ((0,1,0),
           lambda i,j,k: [self.M[i,j-1,k],   self.g1A(i),   self.Delta()]),
-         ((0,0,-1),
+         ((0,0,1),
           lambda i,j,k: [self.M[i,j,k-1],   self.g2B(k),   self.Delta()])
       ]
 
@@ -66,7 +66,7 @@ class BiAligner:
 
    def guardCase(self,x,i,j,k):
       (io,jo,ko) = self.recCases[x][0]
-      return i+io>=0 and j+jo>=0 and k+ko>=0
+      return i-io>=0 and j-jo>=0 and k-ko>=0
 
    def evalCase(self,x,i,j,k):
       return self.mul( self.recCases[x][1](i,j,k) )
@@ -180,7 +180,7 @@ class BiAligner:
                   found=True
                   (io,jo,ko) = self.recCases[x][0]
                   trace.append((io,jo,ko))
-                  trace_from(i+io,j+jo,k+ko)
+                  trace_from(i-io,j-jo,k-ko)
                   break
          
          # DEBUGGING
@@ -205,7 +205,7 @@ class BiAligner:
          for s in range(3):
             if (y[s]==0):
                alignment[s] = alignment[s] + "-"
-            elif (y[s]==-1):
+            elif (y[s]==1):
                alignment[s] = alignment[s] + seqs[s][pos[s]] 
                pos[s]+=1
       return alignment
@@ -214,7 +214,7 @@ class BiAligner:
    def eval_trace(self,trace):
       pos=[0]*3
       for i,y in enumerate(trace):
-         for k in range(3): pos[k] -= y[k]
+         for k in range(3): pos[k] += y[k]
          # lookup case
          for x,c in enumerate(self.recCases):
             if c[0] == y:
