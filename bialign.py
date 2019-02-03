@@ -40,14 +40,14 @@ class BiAligner:
     #       function that returns list of case score components
     def recursionCases(self,i,j,k):
         # synchronous cases
-        yield ((1,1,1), [self.mu1(i,j), self.mu2(i,k)])
-        yield ((1,0,0), [self.g1A(i),   self.g2A(i)])
-        yield ((0,1,1), [self.g1B(j),   self.g2B(k)])
+        yield ((1,1,1), self.mu1(i,j) + self.mu2(i,k))
+        yield ((1,0,0), self.g1A(i)   + self.g2A(i))
+        yield ((0,1,1), self.g1B(j)   + self.g2B(k))
         # shifting
-        yield ((1,1,0), [self.mu1(i,j), self.g2A(i), self.Delta()])
-        yield ((1,0,1), [self.mu2(i,k), self.g1A(i), self.Delta()])
-        yield ((0,1,0), [self.g1A(i),   self.Delta()])
-        yield ((0,0,1), [self.g2B(k),   self.Delta()])
+        yield ((1,1,0), self.mu1(i,j) + self.g2A(i) + self.Delta())
+        yield ((1,0,1), self.mu2(i,k) + self.g1A(i) + self.Delta())
+        yield ((0,1,0), self.g1A(i)   + self.Delta())
+        yield ((0,0,1), self.g2B(k)   + self.Delta())
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
@@ -56,9 +56,9 @@ class BiAligner:
         else:
            return 0
 
-    # mul operator (sum in optimization, product in pf)
-    def mul(self, xs):
-        return sum(xs)
+    ## mul operator (sum in optimization, product in pf)
+    # def mul(self, xs):
+    #    return sum(xs)
 
     def guardCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
@@ -66,9 +66,7 @@ class BiAligner:
 
     def evalCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
-        return self.mul([self.M[i-io,j-jo,k-ko],
-                         self.mul(x[1])
-                        ])
+        return self.M[i-io,j-jo,k-ko] + x[1]
 
     # make bpp symmetric (based on upper triangular matrix)
     # and set diagonal to unpaired probs
