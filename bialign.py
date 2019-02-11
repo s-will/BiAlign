@@ -13,11 +13,11 @@ class BiAligner:
         self.rnaB = self._preprocess_seq(seqB,strB)
 
         # parametrization
-        self._sequence_match_similarity = 100
+        self._sequence_match_similarity = 102
         self._sequence_mismatch_similarity = -50
-        self._structure_weight = 200
+        self._structure_weight = 100
         self._gap_cost = -50
-        self._shift_cost = -50
+        self._shift_cost = -51
 
         # precompute expected pairing partner offset for structure scores
         # For fixed input structures, we would just set the
@@ -137,7 +137,7 @@ class BiAligner:
  
     def _structure_similarity(self,i,j):
         return int( self._structure_weight * 
-                    exp(-0.5+1/(1+exp(abs( self.rnaA["pair"][i] - self.rnaB["pair"][j] )))))
+                    (-0.5+1/(1+exp(abs( self.rnaA["pair"][i] - self.rnaB["pair"][j] )))))
       
     # Scoring functions
     # note: scoring functions have 1-based indices
