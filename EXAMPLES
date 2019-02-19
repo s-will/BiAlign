@@ -1,0 +1,10 @@
+.(((...)))..
+UCCCAUAGGGAA
+UCCCAUAGGUA
+(((...)))..
+
+./bialign.py UCCCAUAGGGAA UCCCAUAGGUA --strA ".(((...))).." --strB "(((...))).."
+
+./bialign.py \
+gcgggggugcccgagccuggccaaaggggucgggcucaggacccgauggcguaggccugcguggguucaaaucccaccccccgca \
+gcagucguggccgagugguuaaggcgucugacucgaaaucagauucccucugggagcguagguucgaauccuaccggcugcg
