@@ -67,9 +67,9 @@ class BiAligner:
         yield ((1,1,1,0), self.g2A(k) + self.mu1(i,j) + self._shift_cost)
         yield ((1,1,0,1), self.g2B(l) + self.mu1(i,j) + self._shift_cost)
 
-        # two-shifts cases
-        yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._shift_cost)
-        yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._shift_cost)
+        # two-shifts cases -- these cases can be replaced by two others --> skip
+        # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._shift_cost)
+        # yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._shift_cost)
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
