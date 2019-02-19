@@ -236,9 +236,9 @@ def main(args):
     optscore = ba.optimize()
     print("SCORE:",optscore)
     trace    = ba.traceback()
-    print("TRACE:")
-    for s in ba.decode_trace(trace): print("  "+s)
-    ba.eval_trace(trace)
+    for s in ba.decode_trace(trace): print(s)
+    if args.verbose:
+        ba.eval_trace(trace)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description= "Bialignment.")
@@ -246,6 +246,7 @@ if __name__ == "__main__":
     parser.add_argument("seqB",help="RNA sequence B")
     parser.add_argument("--strA",default=None,help="RNA structure A")
     parser.add_argument("--strB",default=None,help="RNA structure B")
+    parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
     
     args = parser.parse_args()
     main(args)

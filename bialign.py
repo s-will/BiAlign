@@ -19,7 +19,7 @@ class BiAligner:
         self._gap_cost = -50
  
         self._shift_cost = -51 # cost of shifting the 2 scores against each other
-        self._max_shift = 3 # maximal number of shifts away from the diagonal in either direction
+        self._max_shift = 2 # maximal number of shifts away from the diagonal in either direction
 
         # precompute expected pairing partner offset for structure scores
         # For fixed input structures, we would just set the
@@ -34,22 +34,42 @@ class BiAligner:
         # the dynamic programming matrix
         self.M = None
 
+    # GENERAL ALGORITHM IDEAS
+    #
+    # - perform bialignment
+    # - use two copies of the input sequences
+    # - use indices i and j for the first copy; k and l for the second
+    # - score and restrict shift
+
+
     # iterator over recursion cases
     # 
     # per case:
     #       pair of access info
     #     and 
     #       function that returns list of case score components
-    def recursionCases(self,i,j,k):
+    def recursionCases(self,i,j,k,l):
         # synchronous cases
-        yield ((1,1,1), self.mu1(i,j) + self.mu2(i,k))
-        yield ((1,0,0), self.g1A(i)   + self.g2A(i))
-        yield ((0,1,1), self.g1B(j)   + self.g2B(k))
+        yield ((1,1,1,1), self.mu1(i,j) + self.mu2(k,l))
+        yield ((1,0,1,0), self.g1A(i)   + self.g2A(k))
+        yield ((0,1,0,1), self.g1B(j)   + self.g2B(l))
         # shifting
-        yield ((1,1,0), self.mu1(i,j) + self.g2A(i) + self._shift_cost)
-        yield ((1,0,1), self.mu2(i,k) + self.g1A(i) + self._shift_cost)
-        yield ((0,1,0), self.g1A(i)   + self._shift_cost)
-        yield ((0,0,1), self.g2B(k)   + self._shift_cost)
+        yield ((1,1,0,0), self.mu1(i,j) + self._shift_cost)
+        yield ((0,0,1,1), self.mu2(i,j) + self._shift_cost)
+
+        yield ((1,0,0,0), self.g1A(i) + self._shift_cost)
+        yield ((0,1,0,0), self.g1B(j) + self._shift_cost)
+        yield ((0,0,1,0), self.g2A(k) + self._shift_cost)
+        yield ((0,0,0,1), self.g2B(l) + self._shift_cost)
+
+        yield ((1,0,1,1), self.g1A(i) + self.mu2(k,l) + self._shift_cost)
+        yield ((0,1,1,1), self.g1B(j) + self.mu2(k,l) + self._shift_cost)
+        yield ((1,1,1,0), self.g2A(k) + self.mu1(i,j) + self._shift_cost)
+        yield ((1,1,0,1), self.g2B(l) + self.mu1(i,j) + self._shift_cost)
+
+        # two-shifts cases
+        yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._shift_cost)
+        yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._shift_cost)
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
@@ -62,13 +82,13 @@ class BiAligner:
     # def mul(self, xs):
     #    return sum(xs)
 
-    def guardCase(self,x,i,j,k):
-        (io,jo,ko) = x[0]
-        return i-io>=0 and j-jo>=0 and k-ko>=0 and abs(k-ko-(j-jo))<=self._max_shift
+    def guardCase(self,x,i,j,k,l):
+        (io,jo,ko,lo) = x[0]
+        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo >=0 and abs(k-ko-(i-io))<=self._max_shift and abs(l-lo-(j-jo))<=self._max_shift
 
-    def evalCase(self,x,i,j,k):
-        (io,jo,ko) = x[0]
-        return self.M[i-io,j-jo,k-ko] + x[1]
+    def evalCase(self,x,i,j,k,l):
+        (io,jo,ko,lo) = x[0]
+        return self.M[i-io,j-jo,k-ko,l-lo] + x[1]
 
     # make bpp symmetric (based on upper triangular matrix)
     # and set diagonal to unpaired probs
@@ -170,15 +190,16 @@ class BiAligner:
         lenA = self.rnaA["len"]
         lenB = self.rnaB["len"]
  
-        self.M = np.zeros((lenA+1,lenB+1,lenB+1), dtype=int)
+        self.M = np.zeros((lenA+1,lenB+1,lenA+1,lenB+1), dtype=int)
  
         for i in range(0,lenA+1):
             for j in range(0,lenB+1):
-                for k in range( max(0,j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
-                    self.M[i,j,k] = self.plus( [ self.evalCase(x,i,j,k) 
-                                                 for x in self.recursionCases(i,j,k)
-                                                 if self.guardCase(x,i,j,k) ] )
-        return self.M[lenA,lenB,lenB]
+                for k in range( max(0, i-self._max_shift), min(lenA+1, i+self._max_shift+1) ):
+                    for l in range( max(0, j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
+                        self.M[i,j,k,l] = self.plus( [ self.evalCase(x,i,j,k,l) 
+                                                     for x in self.recursionCases(i,j,k,l)
+                                                     if self.guardCase(x,i,j,k,l) ] )
+        return self.M[lenA,lenB,lenA,lenB]
  
     # perform traceback
     # @returns list of 'trace arrows'
@@ -188,25 +209,25 @@ class BiAligner:
  
         trace=[]
  
-        def trace_from(i,j,k):
-            for x in self.recursionCases(i,j,k):
-                if self.guardCase(x,i,j,k):
-                    if self.evalCase(x,i,j,k) == self.M[i,j,k]:
-                        (io,jo,ko) = x[0]
-                        trace.append((io,jo,ko))
-                        trace_from(i-io,j-jo,k-ko)
+        def trace_from(i,j,k,l):
+            for x in self.recursionCases(i,j,k,l):
+                if self.guardCase(x,i,j,k,l):
+                    if self.evalCase(x,i,j,k,l) == self.M[i,j,k,l]:
+                        (io,jo,ko,lo) = x[0]
+                        trace.append((io,jo,ko,lo))
+                        trace_from(i-io,j-jo,k-ko,l-lo)
                         break
  
-        trace_from(lenA,lenB,lenB)
+        trace_from(lenA,lenB,lenA,lenB)
         return list(reversed(trace))
  
     # decode trace to alignment strings
     def decode_trace(self,trace):
-        seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaB["seq"])
-        pos = [0]*3
-        alignment = [""]*3
+        seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaA["seq"],self.rnaB["seq"])
+        pos = [0]*4
+        alignment = [""]*4
         for i,y in enumerate(trace):
-            for s in range(3):
+            for s in range(4):
                 if (y[s]==0):
                     alignment[s] = alignment[s] + "-"
                 elif (y[s]==1):
@@ -216,17 +237,17 @@ class BiAligner:
  
     # decode trace to alignment strings
     def eval_trace(self,trace):
-        pos=[0]*3
+        pos=[0]*4
         for i,y in enumerate(trace):
-            for k in range(3): pos[k] += y[k]
+            for k in range(4): pos[k] += y[k]
             # lookup case
-            for x in self.recursionCases(pos[0],pos[1],pos[2]):
+            for x in self.recursionCases(pos[0],pos[1],pos[2],pos[3]):
                 if x[0] == y:
                     print(pos,
                           y,
                           x[1],
                           "-->",
-                          self.evalCase(x,pos[0],pos[1],pos[2]))
+                          self.evalCase(x,pos[0],pos[1],pos[2],pos[3]))
                     break
            
 
@@ -236,9 +257,9 @@ def main(args):
     optscore = ba.optimize()
     print("SCORE:",optscore)
     trace    = ba.traceback()
-    print("TRACE:")
-    for s in ba.decode_trace(trace): print("  "+s)
-    ba.eval_trace(trace)
+    for s in ba.decode_trace(trace): print(s)
+    if args.verbose:
+        ba.eval_trace(trace)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description= "Bialignment.")
@@ -246,6 +267,7 @@ if __name__ == "__main__":
     parser.add_argument("seqB",help="RNA sequence B")
     parser.add_argument("--strA",default=None,help="RNA structure A")
     parser.add_argument("--strB",default=None,help="RNA structure B")
+    parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
     
     args = parser.parse_args()
     main(args)
