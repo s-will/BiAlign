@@ -8,3 +8,12 @@ UCCCAUAGGUA
 ./bialign.py \
 gcgggggugcccgagccuggccaaaggggucgggcucaggacccgauggcguaggccugcguggguucaaaucccaccccccgca \
 gcagucguggccgagugguuaaggcgucugacucgaaaucagauucccucugggagcguagguucgaauccuaccggcugcg
+
+
+#Peter's symmetry counter-example:
+
+./bialign.py GCAAGCGAAC \
+     --strA "((..))(..)" \
+            GCCGGC \
+    --strB "(())()"
+
