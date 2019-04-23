@@ -4,7 +4,7 @@ import RNA
 import sys
 import argparse
 import numpy as np
-from math import log,exp
+from math import log,exp,sqrt
 
 ## Alignment factory
 class BiAligner:
@@ -17,19 +17,14 @@ class BiAligner:
         self._sequence_mismatch_similarity = -50
         self._structure_weight = 100
         self._gap_cost = -50
- 
-        self._shift_cost = -17 # cost of shifting the 2 scores against each other
+
+        self._shift_cost = -50 # cost of shifting the 2 scores against each other
         self._max_shift = 3 # maximal number of shifts away from the diagonal in either direction
 
-        # precompute expected pairing partner offset for structure scores
-        # For fixed input structures, we would just set the
-        # entry to the offest of the other end, like
-        # pair[i] = j-i for base pair {i,j}.
-        self.rnaA["pair"] = self._expected_pairing(self.rnaA)
-        self.rnaB["pair"] = self._expected_pairing(self.rnaB)
-
-        #print("RNA_A",self.rnaA)
-        #print("RNA_B",self.rnaB)
+        print( "Structure similarity",
+               [ ((i,j),s) for i in range(1,len(seqA)+1)
+                           for j in range(1,len(seqB)+1)
+                           for s in [self._structure_similarity(i,j)] if s!=0])
 
         # the dynamic programming matrix
         self.M = None
@@ -43,10 +38,10 @@ class BiAligner:
 
 
     # iterator over recursion cases
-    # 
+    #
     # per case:
     #       pair of access info
-    #     and 
+    #     and
     #       function that returns list of case score components
     def recursionCases(self,i,j,k,l):
         # synchronous cases
@@ -100,18 +95,18 @@ class BiAligner:
             for j in range(i+1,n+1):
                 sbpp[i,j] = bpp[i][j]
                 sbpp[j,i] = bpp[i][j]
-        
+
         for i in range(1,n+1):
             sbpp[i,i] = 1.0 - sum( sbpp[i,j] for j in range(1,n+1) )
-        
+
         return sbpp
-        
+
     @staticmethod
     def _preprocess_seq(sequence, structure):
         x = dict()
         x["seq"] = str(sequence)
         x["len"] = len(x["seq"])
-        
+
         if structure is None:
             fc = RNA.fold_compound(str(sequence))
             x["mfe"] = fc.mfe()
@@ -122,6 +117,13 @@ class BiAligner:
                 print("Fixed structure and sequence must have the same length.")
                 sys.exit()
             x["sbpp"] = BiAligner._bp_matrix_from_fixed_structure(structure)
+
+        n = x["len"]
+        #note: the arrays are 1-based (we just ignore entries at 0)
+        x["up"]   = [ sum( x["sbpp"][i][j] for j in range(1,i-1) ) for i in range(0,n+1) ]
+        x["down"] = [ sum( x["sbpp"][i][j] for j in range(i+1,n+1) ) for i in range(0,n+1) ]
+        x["unp"]  = [ 1.0 - x["up"][i] - x["down"][i] for i in range(0,n+1) ]
+
         return x
 
     @staticmethod
@@ -155,22 +157,26 @@ class BiAligner:
             return self._sequence_match_similarity
         else:
             return self._sequence_mismatch_similarity
- 
+
     def _structure_similarity(self,i,j):
-        return int( self._structure_weight * 
-                    (-1 + 2/(1+exp(abs( self.rnaA["pair"][i] - self.rnaB["pair"][j] )))))
-      
+        return int( self._structure_weight *
+                    (
+                      sqrt(self.rnaA["up"][i]*self.rnaB["up"][j])
+                      + sqrt(self.rnaA["down"][i]*self.rnaB["down"][j])
+                      + sqrt(self.rnaA["unp"][i]*self.rnaB["unp"][j])
+                    )
+                  )
     # Scoring functions
     # note: scoring functions have 1-based indices
- 
+
     # match/mismatch cost for i~j, score 1
     def mu1(self,i,j):
         return self._sequence_similarity(i,j)
- 
+
     # match/mismatch cost for i~j, score 2
     def mu2(self,i,j):
         return self._structure_similarity(i,j)
- 
+
     # gap cost for inserting i, score 1, in first sequence
     def g1A(self,i):
         return self._gap_cost
@@ -183,31 +189,31 @@ class BiAligner:
     # gap cost for inserting i, score 2, in second sequence
     def g2B(self,i):
         return self._gap_cost
- 
+
     # run alignment algorithm
     def optimize(self):
         lenA = self.rnaA["len"]
         lenB = self.rnaB["len"]
- 
+
         self.M = np.zeros((lenA+1,lenB+1,lenA+1,lenB+1), dtype=int)
- 
+
         for i in range(0,lenA+1):
             for j in range(0,lenB+1):
                 for k in range( max(0, i-self._max_shift), min(lenA+1, i+self._max_shift+1) ):
                     for l in range( max(0, j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
-                        self.M[i,j,k,l] = self.plus( [ self.evalCase(x,i,j,k,l) 
+                        self.M[i,j,k,l] = self.plus( [ self.evalCase(x,i,j,k,l)
                                                      for x in self.recursionCases(i,j,k,l)
                                                      if self.guardCase(x,i,j,k,l) ] )
         return self.M[lenA,lenB,lenA,lenB]
- 
+
     # perform traceback
     # @returns list of 'trace arrows'
     def traceback(self):
         lenA = self.rnaA["len"]
         lenB = self.rnaB["len"]
- 
+
         trace=[]
- 
+
         def trace_from(i,j,k,l):
             for x in self.recursionCases(i,j,k,l):
                 if self.guardCase(x,i,j,k,l):
@@ -216,10 +222,10 @@ class BiAligner:
                         trace.append((io,jo,ko,lo))
                         trace_from(i-io,j-jo,k-ko,l-lo)
                         break
- 
+
         trace_from(lenA,lenB,lenA,lenB)
         return list(reversed(trace))
- 
+
     # decode trace to alignment strings
     def decode_trace(self,trace):
         seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaA["seq"],self.rnaB["seq"])
@@ -230,10 +236,10 @@ class BiAligner:
                 if (y[s]==0):
                     alignment[s] = alignment[s] + "-"
                 elif (y[s]==1):
-                    alignment[s] = alignment[s] + seqs[s][pos[s]] 
+                    alignment[s] = alignment[s] + seqs[s][pos[s]]
                     pos[s]+=1
         return alignment
- 
+
     # decode trace to alignment strings
     def eval_trace(self,trace):
         pos=[0]*4
@@ -248,14 +254,10 @@ class BiAligner:
                           "-->",
                           self.evalCase(x,pos[0],pos[1],pos[2],pos[3]))
                     break
-           
+
 
 def main(args):
     ba = BiAligner(args.seqA,args.seqB,args.strA,args.strB)
-
-    print( "RNA_A pair", ba.rnaA["pair"])
-    print( "RNA_B pair", ba.rnaB["pair"])
-    print( "Structure similarity", [ ((i,j),s) for i in range(1,len(args.seqA)+1) for j in range(1,len(args.seqB)+1) for s in [ba._structure_similarity(i,j)]] )
 
     optscore = ba.optimize()
     print("SCORE:",optscore)
@@ -271,6 +273,6 @@ if __name__ == "__main__":
     parser.add_argument("--strA",default=None,help="RNA structure A")
     parser.add_argument("--strB",default=None,help="RNA structure B")
     parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
-    
+
     args = parser.parse_args()
     main(args)

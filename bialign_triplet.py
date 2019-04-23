@@ -14,10 +14,10 @@ class BiAlignerTriplet (BiAligner):
         super().__init__(seqA, seqB, strA, strB)
 
     # iterator over recursion cases
-    # 
+    #
     # per case:
     #       pair of access info
-    #     and 
+    #     and
     #       function that returns list of case score components
     def recursionCases(self,i,j,k):
         # synchronous cases
@@ -37,30 +37,30 @@ class BiAlignerTriplet (BiAligner):
     def evalCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
         return self.M[i-io,j-jo,k-ko] + x[1]
- 
+
     # run alignment algorithm
     def optimize(self):
         lenA = self.rnaA["len"]
         lenB = self.rnaB["len"]
- 
+
         self.M = np.zeros((lenA+1,lenB+1,lenB+1), dtype=int)
- 
+
         for i in range(0,lenA+1):
             for j in range(0,lenB+1):
                 for k in range( max(0,j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
-                    self.M[i,j,k] = self.plus( [ self.evalCase(x,i,j,k) 
+                    self.M[i,j,k] = self.plus( [ self.evalCase(x,i,j,k)
                                                  for x in self.recursionCases(i,j,k)
                                                  if self.guardCase(x,i,j,k) ] )
         return self.M[lenA,lenB,lenB]
- 
+
     # perform traceback
     # @returns list of 'trace arrows'
     def traceback(self):
         lenA = self.rnaA["len"]
         lenB = self.rnaB["len"]
- 
+
         trace=[]
- 
+
         def trace_from(i,j,k):
             for x in self.recursionCases(i,j,k):
                 if self.guardCase(x,i,j,k):
@@ -69,10 +69,10 @@ class BiAlignerTriplet (BiAligner):
                         trace.append((io,jo,ko))
                         trace_from(i-io,j-jo,k-ko)
                         break
- 
+
         trace_from(lenA,lenB,lenB)
         return list(reversed(trace))
- 
+
     # decode trace to alignment strings
     def decode_trace(self,trace):
         seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaB["seq"])
@@ -83,10 +83,10 @@ class BiAlignerTriplet (BiAligner):
                 if (y[s]==0):
                     alignment[s] = alignment[s] + "-"
                 elif (y[s]==1):
-                    alignment[s] = alignment[s] + seqs[s][pos[s]] 
+                    alignment[s] = alignment[s] + seqs[s][pos[s]]
                     pos[s]+=1
         return alignment
- 
+
     # decode trace to alignment strings
     def eval_trace(self,trace):
         pos=[0]*3
@@ -101,14 +101,10 @@ class BiAlignerTriplet (BiAligner):
                           "-->",
                           self.evalCase(x,pos[0],pos[1],pos[2]))
                     break
-           
+
 
 def main(args):
     ba = BiAlignerTriplet(args.seqA,args.seqB,args.strA,args.strB)
-
-    print( "RNA_A pair", ba.rnaA["pair"])
-    print( "RNA_B pair", ba.rnaB["pair"])
-    print( "Structure similarity", [ ((i,j),s) for i in range(1,len(args.seqA)+1) for j in range(1,len(args.seqB)+1) for s in [ba._structure_similarity(i,j)]] )
 
     optscore = ba.optimize()
     print("SCORE:",optscore)
@@ -124,6 +120,6 @@ if __name__ == "__main__":
     parser.add_argument("--strA",default=None,help="RNA structure A")
     parser.add_argument("--strB",default=None,help="RNA structure B")
     parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
-    
+
     args = parser.parse_args()
     main(args)
