@@ -18,8 +18,8 @@ class BiAligner:
         self._structure_weight = 100
         self._gap_cost = -50
  
-        self._shift_cost = -51 # cost of shifting the 2 scores against each other
-        self._max_shift = 2 # maximal number of shifts away from the diagonal in either direction
+        self._shift_cost = -17 # cost of shifting the 2 scores against each other
+        self._max_shift = 3 # maximal number of shifts away from the diagonal in either direction
 
         # precompute expected pairing partner offset for structure scores
         # For fixed input structures, we would just set the
@@ -67,7 +67,7 @@ class BiAligner:
         yield ((1,1,1,0), self.g2A(k) + self.mu1(i,j) + self._shift_cost)
         yield ((1,1,0,1), self.g2B(l) + self.mu1(i,j) + self._shift_cost)
 
-        # two-shifts cases -- these cases can be replaced by two others --> skip
+        # double-shift cases -- these cases can be replaced by two others --> skip
         # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._shift_cost)
         # yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._shift_cost)
 
@@ -121,7 +121,6 @@ class BiAligner:
             if len(structure)!=len(sequence):
                 print("Fixed structure and sequence must have the same length.")
                 sys.exit()
-            # TODO: generate sbpp from fixed structure
             x["sbpp"] = BiAligner._bp_matrix_from_fixed_structure(structure)
         return x
 
@@ -159,7 +158,7 @@ class BiAligner:
  
     def _structure_similarity(self,i,j):
         return int( self._structure_weight * 
-                    (-0.5+1/(1+exp(abs( self.rnaA["pair"][i] - self.rnaB["pair"][j] )))))
+                    (-1 + 2/(1+exp(abs( self.rnaA["pair"][i] - self.rnaB["pair"][j] )))))
       
     # Scoring functions
     # note: scoring functions have 1-based indices
@@ -253,7 +252,11 @@ class BiAligner:
 
 def main(args):
     ba = BiAligner(args.seqA,args.seqB,args.strA,args.strB)
- 
+
+    print( "RNA_A pair", ba.rnaA["pair"])
+    print( "RNA_B pair", ba.rnaB["pair"])
+    print( "Structure similarity", [ ((i,j),s) for i in range(1,len(args.seqA)+1) for j in range(1,len(args.seqB)+1) for s in [ba._structure_similarity(i,j)]] )
+
     optscore = ba.optimize()
     print("SCORE:",optscore)
     trace    = ba.traceback()

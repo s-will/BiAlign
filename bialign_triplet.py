@@ -6,33 +6,12 @@ import argparse
 import numpy as np
 from math import log,exp
 
+from bialign import BiAligner
+
 ## Alignment factory
-class BiAligner:
+class BiAlignerTriplet (BiAligner):
     def __init__(self, seqA, seqB, strA=None, strB=None):
-        self.rnaA = self._preprocess_seq(seqA,strA)
-        self.rnaB = self._preprocess_seq(seqB,strB)
-
-        # parametrization
-        self._sequence_match_similarity = 102
-        self._sequence_mismatch_similarity = -50
-        self._structure_weight = 100
-        self._gap_cost = -50
- 
-        self._shift_cost = -51 # cost of shifting the 2 scores against each other
-        self._max_shift = 3 # maximal number of shifts away from the diagonal in either direction
-
-        # precompute expected pairing partner offset for structure scores
-        # For fixed input structures, we would just set the
-        # entry to the offest of the other end, like
-        # pair[i] = j-i for base pair {i,j}.
-        self.rnaA["pair"] = self._expected_pairing(self.rnaA)
-        self.rnaB["pair"] = self._expected_pairing(self.rnaB)
-
-        #print("RNA_A",self.rnaA)
-        #print("RNA_B",self.rnaB)
-
-        # the dynamic programming matrix
-        self.M = None
+        super().__init__(seqA, seqB, strA, strB)
 
     # iterator over recursion cases
     # 
@@ -48,19 +27,8 @@ class BiAligner:
         # shifting
         yield ((1,1,0), self.mu1(i,j) + self.g2A(i) + self._shift_cost)
         yield ((1,0,1), self.mu2(i,k) + self.g1A(i) + self._shift_cost)
-        yield ((0,1,0), self.g1A(i)   + self._shift_cost)
+        yield ((0,1,0), self.g1B(j)   + self._shift_cost)
         yield ((0,0,1), self.g2B(k)   + self._shift_cost)
-
-    # plus operator (max in optimization; sum in pf)
-    def plus(self, xs):
-        if xs != []:
-           return max(xs)
-        else:
-           return 0
-
-    ## mul operator (sum in optimization, product in pf)
-    # def mul(self, xs):
-    #    return sum(xs)
 
     def guardCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
@@ -69,101 +37,6 @@ class BiAligner:
     def evalCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
         return self.M[i-io,j-jo,k-ko] + x[1]
-
-    # make bpp symmetric (based on upper triangular matrix)
-    # and set diagonal to unpaired probs
-    @staticmethod
-    def _symmetrize_bpps(bpp):
-        n=len(bpp)-1
-        sbpp = np.zeros((n+1,n+1),dtype='float')
-        for i in range(1,n+1):
-            for j in range(i+1,n+1):
-                sbpp[i,j] = bpp[i][j]
-                sbpp[j,i] = bpp[i][j]
-        
-        for i in range(1,n+1):
-            sbpp[i,i] = 1.0 - sum( sbpp[i,j] for j in range(1,n+1) )
-        
-        return sbpp
-        
-    @staticmethod
-    def _preprocess_seq(sequence, structure):
-        x = dict()
-        x["seq"] = str(sequence)
-        x["len"] = len(x["seq"])
-        
-        if structure is None:
-            fc = RNA.fold_compound(str(sequence))
-            x["mfe"] = fc.mfe()
-            x["pf"] = fc.pf()
-            x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
-        else:
-            if len(structure)!=len(sequence):
-                print("Fixed structure and sequence must have the same length.")
-                sys.exit()
-            # TODO: generate sbpp from fixed structure
-            x["sbpp"] = BiAligner._bp_matrix_from_fixed_structure(structure)
-        return x
-
-    @staticmethod
-    def _bp_matrix_from_fixed_structure(structure):
-        n = len(structure)
-        bpm = np.zeros((n+1,n+1),dtype='float')
-        stack=list()
-        for i in range(n):
-            if structure[i]=='(':
-                stack.append(i)
-            elif structure[i]==')':
-                j=stack.pop()
-                bpm[i+1,j+1]=1.0
-                bpm[j+1,i+1]=1.0
-            else:
-                bpm[i+1,i+1]=1.0
-        return bpm
-
-    @staticmethod
-    def _expected_pairing(rna):
-        n = rna["len"]
-        sbpp = rna["sbpp"]
-        def ep(i):
-            return sum( sbpp[i,j]*(j-i) for j in range(1,n+1) )
-
-        return [0] + [ ep(i) for i in range(1,n+1) ]
-
-    # sequence similarity of residues i and j, 1-based
-    def _sequence_similarity(self,i,j):
-        if self.rnaA["seq"][i-1]==self.rnaB["seq"][j-1]:
-            return self._sequence_match_similarity
-        else:
-            return self._sequence_mismatch_similarity
- 
-    def _structure_similarity(self,i,j):
-        return int( self._structure_weight * 
-                    (-0.5+1/(1+exp(abs( self.rnaA["pair"][i] - self.rnaB["pair"][j] )))))
-      
-    # Scoring functions
-    # note: scoring functions have 1-based indices
- 
-    # match/mismatch cost for i~j, score 1
-    def mu1(self,i,j):
-        return self._sequence_similarity(i,j)
- 
-    # match/mismatch cost for i~j, score 2
-    def mu2(self,i,j):
-        return self._structure_similarity(i,j)
- 
-    # gap cost for inserting i, score 1, in first sequence
-    def g1A(self,i):
-        return self._gap_cost
-    # gap cost for inserting i, score 1, in second sequence
-    def g1B(self,i):
-        return self._gap_cost
-    # gap cost for inserting i, score 2, in first sequence
-    def g2A(self,i):
-        return self._gap_cost
-    # gap cost for inserting i, score 2, in second sequence
-    def g2B(self,i):
-        return self._gap_cost
  
     # run alignment algorithm
     def optimize(self):
@@ -231,8 +104,12 @@ class BiAligner:
            
 
 def main(args):
-    ba = BiAligner(args.seqA,args.seqB,args.strA,args.strB)
- 
+    ba = BiAlignerTriplet(args.seqA,args.seqB,args.strA,args.strB)
+
+    print( "RNA_A pair", ba.rnaA["pair"])
+    print( "RNA_B pair", ba.rnaB["pair"])
+    print( "Structure similarity", [ ((i,j),s) for i in range(1,len(args.seqA)+1) for j in range(1,len(args.seqB)+1) for s in [ba._structure_similarity(i,j)]] )
+
     optscore = ba.optimize()
     print("SCORE:",optscore)
     trace    = ba.traceback()
