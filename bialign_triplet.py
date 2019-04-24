@@ -75,7 +75,7 @@ class BiAlignerTriplet (BiAligner):
 
     # decode trace to alignment strings
     def decode_trace(self,trace):
-        seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaB["seq"])
+        rnas = (self.rnaA,self.rnaB,self.rnaB)
         pos = [0]*3
         alignment = [""]*3
         for i,y in enumerate(trace):
@@ -83,11 +83,19 @@ class BiAlignerTriplet (BiAligner):
                 if (y[s]==0):
                     alignment[s] = alignment[s] + "-"
                 elif (y[s]==1):
-                    alignment[s] = alignment[s] + seqs[s][pos[s]]
+                    alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
                     pos[s]+=1
-        return alignment
 
-    # decode trace to alignment strings
+
+        # annotate with structure
+        anno_alignment = list()
+        for alistr,rna in zip(alignment,rnas):
+            anno_alignment.append( self._transfer_gaps(alistr,rna["structure"]) )
+            anno_alignment.append( alistr )
+
+        return anno_alignment
+
+    # evaluar trace
     def eval_trace(self,trace):
         pos=[0]*3
         for i,y in enumerate(trace):

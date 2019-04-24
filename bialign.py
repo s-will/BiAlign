@@ -112,10 +112,12 @@ class BiAligner:
             x["mfe"] = fc.mfe()
             x["pf"] = fc.pf()
             x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
+            x["structure"] = x["pf"][0]
         else:
             if len(structure)!=len(sequence):
                 print("Fixed structure and sequence must have the same length.")
                 sys.exit()
+            x["structure"] = structure
             x["sbpp"] = BiAligner._bp_matrix_from_fixed_structure(structure)
 
         n = x["len"]
@@ -226,21 +228,41 @@ class BiAligner:
         trace_from(lenA,lenB,lenA,lenB)
         return list(reversed(trace))
 
+    # transfer gap pattern from an alignment string to a sequence string
+    @staticmethod
+    def _transfer_gaps(alistr,seqstr):
+        pos=0
+        res=""
+        for i,c in enumerate(alistr):
+            if c=="-":
+                res+="-"
+            else:
+                res+=seqstr[pos]
+                pos+=1
+        return res
+
     # decode trace to alignment strings
-    def decode_trace(self,trace):
-        seqs = (self.rnaA["seq"],self.rnaB["seq"],self.rnaA["seq"],self.rnaB["seq"])
-        pos = [0]*4
-        alignment = [""]*4
+    def decode_trace(self, trace, showStructures=False):
+        rnas = (self.rnaA,self.rnaB,self.rnaA,self.rnaB)
+        pos = [0]*len(rnas)
+        alignment = [""]*len(rnas)
         for i,y in enumerate(trace):
-            for s in range(4):
+            for s in range(len(rnas)):
                 if (y[s]==0):
                     alignment[s] = alignment[s] + "-"
                 elif (y[s]==1):
-                    alignment[s] = alignment[s] + seqs[s][pos[s]]
+                    alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
                     pos[s]+=1
-        return alignment
 
-    # decode trace to alignment strings
+        # annotate with structure
+        anno_alignment = list()
+        for alistr,rna in zip(alignment,rnas):
+            anno_alignment.append( self._transfer_gaps(alistr,rna["structure"]) )
+            anno_alignment.append( alistr )
+
+        return anno_alignment
+
+    # evaluate trace
     def eval_trace(self,trace):
         pos=[0]*4
         for i,y in enumerate(trace):
@@ -262,7 +284,10 @@ def main(args):
     optscore = ba.optimize()
     print("SCORE:",optscore)
     trace    = ba.traceback()
-    for s in ba.decode_trace(trace): print(s)
+
+    for s in ba.decode_trace(trace,True):
+        print(s)
+
     if args.verbose:
         ba.eval_trace(trace)
 
