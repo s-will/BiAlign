@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 import RNA
 
 import sys
@@ -8,18 +9,12 @@ from math import log,exp,sqrt
 
 ## Alignment factory
 class BiAligner:
-    def __init__(self, seqA, seqB, strA=None, strB=None):
+    def __init__(self, seqA, seqB, strA, strB, **params):
         self.rnaA = self._preprocess_seq(seqA,strA)
         self.rnaB = self._preprocess_seq(seqB,strB)
 
         # parametrization
-        self._sequence_match_similarity = 102
-        self._sequence_mismatch_similarity = -50
-        self._structure_weight = 100
-        self._gap_cost = -50
-
-        self._shift_cost = -50 # cost of shifting the 2 scores against each other
-        self._max_shift = 3 # maximal number of shifts away from the diagonal in either direction
+        self._params = params
 
         print( "Structure similarity",
                [ ((i,j),s) for i in range(1,len(seqA)+1)
@@ -49,22 +44,22 @@ class BiAligner:
         yield ((1,0,1,0), self.g1A(i)   + self.g2A(k))
         yield ((0,1,0,1), self.g1B(j)   + self.g2B(l))
         # shifting
-        yield ((1,1,0,0), self.mu1(i,j) + self._shift_cost)
-        yield ((0,0,1,1), self.mu2(i,j) + self._shift_cost)
+        yield ((1,1,0,0), self.mu1(i,j) + self._params["shift_cost"])
+        yield ((0,0,1,1), self.mu2(i,j) + self._params["shift_cost"])
 
-        yield ((1,0,0,0), self.g1A(i) + self._shift_cost)
-        yield ((0,1,0,0), self.g1B(j) + self._shift_cost)
-        yield ((0,0,1,0), self.g2A(k) + self._shift_cost)
-        yield ((0,0,0,1), self.g2B(l) + self._shift_cost)
+        yield ((1,0,0,0), self.g1A(i) + self._params["shift_cost"])
+        yield ((0,1,0,0), self.g1B(j) + self._params["shift_cost"])
+        yield ((0,0,1,0), self.g2A(k) + self._params["shift_cost"])
+        yield ((0,0,0,1), self.g2B(l) + self._params["shift_cost"])
 
-        yield ((1,0,1,1), self.g1A(i) + self.mu2(k,l) + self._shift_cost)
-        yield ((0,1,1,1), self.g1B(j) + self.mu2(k,l) + self._shift_cost)
-        yield ((1,1,1,0), self.g2A(k) + self.mu1(i,j) + self._shift_cost)
-        yield ((1,1,0,1), self.g2B(l) + self.mu1(i,j) + self._shift_cost)
+        yield ((1,0,1,1), self.g1A(i) + self.mu2(k,l) + self._params["shift_cost"])
+        yield ((0,1,1,1), self.g1B(j) + self.mu2(k,l) + self._params["shift_cost"])
+        yield ((1,1,1,0), self.g2A(k) + self.mu1(i,j) + self._params["shift_cost"])
+        yield ((1,1,0,1), self.g2B(l) + self.mu1(i,j) + self._params["shift_cost"])
 
         # double-shift cases -- these cases can be replaced by two others --> skip
-        # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._shift_cost)
-        # yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._shift_cost)
+        # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._params["shift_cost"])
+        # yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._params["shift_cost"])
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
@@ -79,7 +74,7 @@ class BiAligner:
 
     def guardCase(self,x,i,j,k,l):
         (io,jo,ko,lo) = x[0]
-        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo >=0 and abs(k-ko-(i-io))<=self._max_shift and abs(l-lo-(j-jo))<=self._max_shift
+        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo >=0 and abs(k-ko-(i-io))<=self._params["max_shift"] and abs(l-lo-(j-jo))<=self._params["max_shift"]
 
     def evalCase(self,x,i,j,k,l):
         (io,jo,ko,lo) = x[0]
@@ -156,12 +151,12 @@ class BiAligner:
     # sequence similarity of residues i and j, 1-based
     def _sequence_similarity(self,i,j):
         if self.rnaA["seq"][i-1]==self.rnaB["seq"][j-1]:
-            return self._sequence_match_similarity
+            return self._params["sequence_match_similarity"]
         else:
-            return self._sequence_mismatch_similarity
+            return self._params["sequence_mismatch_similarity"]
 
     def _structure_similarity(self,i,j):
-        return int( self._structure_weight *
+        return int( self._params["structure_weight"] *
                     (
                       sqrt(self.rnaA["up"][i]*self.rnaB["up"][j])
                       + sqrt(self.rnaA["down"][i]*self.rnaB["down"][j])
@@ -181,16 +176,16 @@ class BiAligner:
 
     # gap cost for inserting i, score 1, in first sequence
     def g1A(self,i):
-        return self._gap_cost
+        return self._params["gap_cost"]
     # gap cost for inserting i, score 1, in second sequence
     def g1B(self,i):
-        return self._gap_cost
+        return self._params["gap_cost"]
     # gap cost for inserting i, score 2, in first sequence
     def g2A(self,i):
-        return self._gap_cost
+        return self._params["gap_cost"]
     # gap cost for inserting i, score 2, in second sequence
     def g2B(self,i):
-        return self._gap_cost
+        return self._params["gap_cost"]
 
     # run alignment algorithm
     def optimize(self):
@@ -201,8 +196,8 @@ class BiAligner:
 
         for i in range(0,lenA+1):
             for j in range(0,lenB+1):
-                for k in range( max(0, i-self._max_shift), min(lenA+1, i+self._max_shift+1) ):
-                    for l in range( max(0, j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
+                for k in range( max(0, i-self._params["max_shift"]), min(lenA+1, i+self._params["max_shift"]+1) ):
+                    for l in range( max(0, j-self._params["max_shift"]), min(lenB+1, j+self._params["max_shift"]+1) ):
                         self.M[i,j,k,l] = self.plus( [ self.evalCase(x,i,j,k,l)
                                                      for x in self.recursionCases(i,j,k,l)
                                                      if self.guardCase(x,i,j,k,l) ] )
@@ -242,7 +237,10 @@ class BiAligner:
         return res
 
     # decode trace to alignment strings
-    def decode_trace(self, trace, showStructures=False):
+    def decode_trace(self, trace=None, show_structures=False):
+        if trace is None:
+            trace = self.traceback()
+
         rnas = (self.rnaA,self.rnaB,self.rnaA,self.rnaB)
         pos = [0]*len(rnas)
         alignment = [""]*len(rnas)
@@ -254,6 +252,10 @@ class BiAligner:
                     alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
                     pos[s]+=1
 
+        if not show_structures:
+            return alignment
+
+
         # annotate with structure
         anno_alignment = list()
         for alistr,rna in zip(alignment,rnas):
@@ -263,41 +265,70 @@ class BiAligner:
         return anno_alignment
 
     # evaluate trace
-    def eval_trace(self,trace):
+    def eval_trace(self, trace=None):
+        if trace is None:
+            trace = self.traceback()
+
         pos=[0]*4
         for i,y in enumerate(trace):
             for k in range(4): pos[k] += y[k]
             # lookup case
             for x in self.recursionCases(pos[0],pos[1],pos[2],pos[3]):
                 if x[0] == y:
-                    print(pos,
-                          y,
-                          x[1],
-                          "-->",
-                          self.evalCase(x,pos[0],pos[1],pos[2],pos[3]))
+                    line = " ".join([ str(x) for x in 
+                            [pos,
+                            y,
+                            x[1],
+                            "-->",
+                            self.evalCase(x,pos[0],pos[1],pos[2],pos[3])
+                            ]
+                        ])
+                    yield line
                     break
 
-
-def main(args):
-    ba = BiAligner(args.seqA,args.seqB,args.strA,args.strB)
+#convenience function to construct bialigner, perform and return text output
+def bialign(seqA,seqB,strA,strB,show_structures,verbose,**args):
+    ba = BiAligner(seqA,seqB,strA,strB,**args)
 
     optscore = ba.optimize()
-    print("SCORE:",optscore)
-    trace    = ba.traceback()
+    yield "SCORE:" + str(optscore)
 
-    for s in ba.decode_trace(trace,True):
-        print(s)
+    for s in ba.decode_trace(show_structures=show_structures):
+        yield s
 
-    if args.verbose:
-        ba.eval_trace(trace)
+    if verbose:
+        yield from ba.eval_trace()
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description= "Bialignment.")
+def add_bialign_parameters(parser):
     parser.add_argument("seqA",help="RNA sequence A")
     parser.add_argument("seqB",help="RNA sequence B")
     parser.add_argument("--strA",default=None,help="RNA structure A")
     parser.add_argument("--strB",default=None,help="RNA structure B")
+    parser.add_argument("--show_structures",action='store_true',help="Print structure annotation with alignment")
     parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
 
+    parser.add_argument("--sequence_match_similarity", type=int,
+            default=100, help="Similarity of matching nucleotides")
+    parser.add_argument("--sequence_mismatch_similarity", type=int, 
+            default=-50, help="Similarity of mismatching nucleotides")
+    parser.add_argument("--structure_weight", type=int, default=100,
+            help="Weighting factor for structure similarity")
+    parser.add_argument("--gap_cost", type=int, default=-50, 
+            help="Similarity of a single gap")
+    parser.add_argument("--shift_cost", type=int, default=-50,
+            help="Similarity of shifting the two scores against each other")
+    parser.add_argument("--max_shift", type=int, default=3,
+            help="Maximal number of shifts away from the diagonal in either direction")
+
+def main():
+    parser = argparse.ArgumentParser(description= "Bialignment.")
+    add_bialign_parameters(parser)
+    
     args = parser.parse_args()
-    main(args)
+    print("Args",vars(args))
+
+    for line in bialign(**vars(args)):
+        print(line)
+
+if __name__ == "__main__":
+    main()

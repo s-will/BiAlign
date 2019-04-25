@@ -6,12 +6,12 @@ import argparse
 import numpy as np
 from math import log,exp
 
-from bialign import BiAligner
+from bialign import *
 
 ## Alignment factory
 class BiAlignerTriplet (BiAligner):
-    def __init__(self, seqA, seqB, strA=None, strB=None):
-        super().__init__(seqA, seqB, strA, strB)
+    def __init__(self, seqA, seqB, strA, strB, **params):
+        super().__init__(seqA, seqB, strA, strB, **params)
 
     # iterator over recursion cases
     #
@@ -25,14 +25,14 @@ class BiAlignerTriplet (BiAligner):
         yield ((1,0,0), self.g1A(i)   + self.g2A(i))
         yield ((0,1,1), self.g1B(j)   + self.g2B(k))
         # shifting
-        yield ((1,1,0), self.mu1(i,j) + self.g2A(i) + self._shift_cost)
-        yield ((1,0,1), self.mu2(i,k) + self.g1A(i) + self._shift_cost)
-        yield ((0,1,0), self.g1B(j)   + self._shift_cost)
-        yield ((0,0,1), self.g2B(k)   + self._shift_cost)
+        yield ((1,1,0), self.mu1(i,j) + self.g2A(i) + self._params["shift_cost"])
+        yield ((1,0,1), self.mu2(i,k) + self.g1A(i) + self._params["shift_cost"])
+        yield ((0,1,0), self.g1B(j)   + self._params["shift_cost"])
+        yield ((0,0,1), self.g2B(k)   + self._params["shift_cost"])
 
     def guardCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
-        return i-io>=0 and j-jo>=0 and k-ko>=0 and abs(k-ko-(j-jo))<=self._max_shift
+        return i-io>=0 and j-jo>=0 and k-ko>=0 and abs(k-ko-(j-jo))<=self._params["max_shift"]
 
     def evalCase(self,x,i,j,k):
         (io,jo,ko) = x[0]
@@ -47,7 +47,7 @@ class BiAlignerTriplet (BiAligner):
 
         for i in range(0,lenA+1):
             for j in range(0,lenB+1):
-                for k in range( max(0,j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
+                for k in range( max(0,j-self._params["max_shift"]), min(lenB+1, j+self._params["max_shift"]+1) ):
                     self.M[i,j,k] = self.plus( [ self.evalCase(x,i,j,k)
                                                  for x in self.recursionCases(i,j,k)
                                                  if self.guardCase(x,i,j,k) ] )
@@ -74,7 +74,10 @@ class BiAlignerTriplet (BiAligner):
         return list(reversed(trace))
 
     # decode trace to alignment strings
-    def decode_trace(self,trace):
+    def decode_trace(self,trace=None,show_structures=False):
+        if trace is None:
+            trace = self.traceback()
+
         rnas = (self.rnaA,self.rnaB,self.rnaB)
         pos = [0]*3
         alignment = [""]*3
@@ -86,6 +89,8 @@ class BiAlignerTriplet (BiAligner):
                     alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
                     pos[s]+=1
 
+        if not show_structures:
+            return alignment
 
         # annotate with structure
         anno_alignment = list()
@@ -95,39 +100,49 @@ class BiAlignerTriplet (BiAligner):
 
         return anno_alignment
 
-    # evaluar trace
-    def eval_trace(self,trace):
+    # evaluate trace
+    def eval_trace(self,trace=None):
+        if trace is None:
+            trace = self.traceback()
         pos=[0]*3
         for i,y in enumerate(trace):
             for k in range(3): pos[k] += y[k]
             # lookup case
             for x in self.recursionCases(pos[0],pos[1],pos[2]):
                 if x[0] == y:
-                    print(pos,
-                          y,
-                          x[1],
-                          "-->",
-                          self.evalCase(x,pos[0],pos[1],pos[2]))
+                    line = " ".join([ str(x) for x in 
+                            [pos,
+                            y,
+                            x[1],
+                            "-->",
+                            self.evalCase(x,pos[0],pos[1],pos[2])
+                            ]
+                        ])
+                    yield line
                     break
 
-
-def main(args):
-    ba = BiAlignerTriplet(args.seqA,args.seqB,args.strA,args.strB)
+#convenience function to construct bialigner, perform and return text output
+def bialign_triplet(seqA,seqB,strA,strB,show_structures,verbose,**args):
+    ba = BiAlignerTriplet(seqA,seqB,strA,strB,**args)
 
     optscore = ba.optimize()
-    print("SCORE:",optscore)
-    trace    = ba.traceback()
-    for s in ba.decode_trace(trace): print(s)
-    if args.verbose:
-        ba.eval_trace(trace)
+    yield "SCORE:" + str(optscore)
+
+    for s in ba.decode_trace(show_structures=show_structures):
+        yield s
+
+    if verbose:
+        yield from ba.eval_trace()
+
+def main():
+    parser = argparse.ArgumentParser(description= "Bialignment.")
+    add_bialign_parameters(parser)
+    
+    args = parser.parse_args()
+    print("Args",vars(args))
+
+    for line in bialign_triplet(**vars(args)):
+        print(line)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description= "Bialignment.")
-    parser.add_argument("seqA",help="RNA sequence A")
-    parser.add_argument("seqB",help="RNA sequence B")
-    parser.add_argument("--strA",default=None,help="RNA structure A")
-    parser.add_argument("--strB",default=None,help="RNA structure B")
-    parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
-
-    args = parser.parse_args()
-    main(args)
+    main()
