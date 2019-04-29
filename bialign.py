@@ -107,7 +107,7 @@ class BiAligner:
             x["mfe"] = fc.mfe()
             x["pf"] = fc.pf()
             x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
-            x["structure"] = x["pf"][0]
+            x["structure"] = x["mfe"][0]
         else:
             if len(structure)!=len(sequence):
                 print("Fixed structure and sequence must have the same length.")
@@ -262,12 +262,16 @@ class BiAligner:
 
 
         # annotate with structure
-        anno_alignment = list()
+        anno_ali = list()
         for alistr,rna in zip(alignment,rnas):
-            anno_alignment.append( self._transfer_gaps(alistr,rna["structure"]) )
-            anno_alignment.append( alistr )
+            anno_ali.append( self._transfer_gaps(alistr,rna["structure"]) )
+            anno_ali.append( alistr )
 
-        return anno_alignment
+        if highlight_identity:
+            anno_ali[0],anno_ali[2] = highlight_structure_identity(anno_ali[0],anno_ali[2])
+            anno_ali[4],anno_ali[6] = highlight_structure_identity(anno_ali[4],anno_ali[6])
+
+        return anno_ali
 
     # evaluate trace
     def eval_trace(self, trace=None):
@@ -300,6 +304,40 @@ def highlight_sequence_identity(alistrA,alistrB):
             y=x
         res[0]+=x
         res[1]+=y
+    return res
+
+
+def parse_dotbracket(dbstr):
+    res = [-1] * len(dbstr)
+    stack=list()
+    for i,sym in enumerate(dbstr):
+        if sym=='(':
+            stack.append(i)
+        elif sym==')':
+            j=stack.pop()
+            res[i]=j
+            res[j]=i
+
+    return res
+
+# highlight matched base pairs in a pairwise alignment
+def highlight_structure_identity(alistrA,alistrB):
+
+    strA = parse_dotbracket(alistrA)
+    strB = parse_dotbracket(alistrB)
+
+    res = ["",""]
+    for i,(x,y) in enumerate(zip(alistrA.lower(),alistrB.lower())):
+        if strA[i]>=0 and strB[i]>=0 and strA[i]==strB[i]:
+            if strA[i]>i:
+                x='['
+            else:
+                x=']'
+            y=x
+
+        res[0]+=x
+        res[1]+=y
+
     return res
 
 def bialign(seqA,seqB,strA,strB,show_structures,highlight_identity,verbose,**args):
