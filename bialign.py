@@ -107,7 +107,8 @@ class BiAligner:
             x["mfe"] = fc.mfe()
             x["pf"] = fc.pf()
             x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
-            x["structure"] = x["mfe"][0]
+            x["mea"] = mea(x["sbpp"])
+            x["structure"] = x["mea"][0]
         else:
             if len(structure)!=len(sequence):
                 print("Fixed structure and sequence must have the same length.")
@@ -294,6 +295,56 @@ class BiAligner:
                         ])
                     yield line
                     break
+
+# compute mea structure
+def mea(sbpp,gamma=1):
+    n = len(sbpp)-1
+    
+    F = np.zeros((n+1,n+1),dtype='float')
+    T = np.zeros((n+1,n+1),dtype='int')
+
+    candidates = [ list() for i in range(0,n+1) ]
+
+    for i in reversed(range(1,n+1)):
+        candidates[i].append((i, sbpp[i,i]))
+        F[i,i-1]=0
+        for j in range(i,n+1):
+            for k,C in candidates[j]:
+                if F[i,j] < F[i,k-1] + C:
+                    F[i,j] = F[i,k-1] + C
+                    T[i,j] = k
+
+            if i>=j:
+                continue
+
+            C = F[i+1,j-1] + 2*gamma*sbpp[i,j]
+            if C > F[i,j]:
+                candidates[j].append((i,C))
+                F[i,j] = C
+                T[i,j] = i
+
+    # trace back
+    
+    structure = ['.']*(n+1)
+    stack = list()
+    stack.append((1,n))
+    
+    while stack:
+        (i,j) = stack.pop()
+        if i>=j: continue
+
+        k = T[i,j]
+        if k == j:
+            stack.append((i,j-1))
+        elif k == i:
+            structure[k]='('
+            structure[j]=')'
+            stack.append((k+1,j-1))
+        else:
+            stack.append((i,k-1))
+            stack.append((k+1,j-1))
+
+    return ("".join(structure[1:]),F[1,n])
 
 # highlight identical sequence in a pairwise alignment
 def highlight_sequence_identity(alistrA,alistrB):
