@@ -16,10 +16,10 @@ class BiAligner:
         # parametrization
         self._params = params
 
-        print( "Structure similarity",
-               [ ((i,j),s) for i in range(1,len(seqA)+1)
-                           for j in range(1,len(seqB)+1)
-                           for s in [self._structure_similarity(i,j)] if s!=0])
+        #print( "Structure similarity",
+        #       [ ((i,j),s) for i in range(1,len(seqA)+1)
+        #                   for j in range(1,len(seqB)+1)
+        #                   for s in [self._structure_similarity(i,j)] if s!=0])
 
         # the dynamic programming matrix
         self.M = None
@@ -237,7 +237,8 @@ class BiAligner:
         return res
 
     # decode trace to alignment strings
-    def decode_trace(self, trace=None, show_structures=False):
+    def decode_trace(self, *, trace=None,
+            show_structures=False,highlight_identity=False):
         if trace is None:
             trace = self.traceback()
 
@@ -251,6 +252,10 @@ class BiAligner:
                 elif (y[s]==1):
                     alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
                     pos[s]+=1
+
+        if highlight_identity:
+            alignment[0],alignment[1] = highlight_sequence_identity(alignment[0],alignment[1])
+            alignment[2],alignment[3] = highlight_sequence_identity(alignment[2],alignment[3])
 
         if not show_structures:
             return alignment
@@ -275,7 +280,7 @@ class BiAligner:
             # lookup case
             for x in self.recursionCases(pos[0],pos[1],pos[2],pos[3]):
                 if x[0] == y:
-                    line = " ".join([ str(x) for x in 
+                    line = " ".join([ str(x) for x in
                             [pos,
                             y,
                             x[1],
@@ -286,15 +291,26 @@ class BiAligner:
                     yield line
                     break
 
-#convenience function to construct bialigner, perform and return text output
-def bialign(seqA,seqB,strA,strB,show_structures,verbose,**args):
+# highlight identical sequence in a pairwise alignment
+def highlight_sequence_identity(alistrA,alistrB):
+    res = ["",""]
+    for x,y in zip(alistrA.lower(),alistrB.lower()):
+        if x==y:
+            x=x.upper()
+            y=x
+        res[0]+=x
+        res[1]+=y
+    return res
+
+def bialign(seqA,seqB,strA,strB,show_structures,highlight_identity,verbose,**args):
     ba = BiAligner(seqA,seqB,strA,strB,**args)
 
     optscore = ba.optimize()
     yield "SCORE:" + str(optscore)
 
-    for s in ba.decode_trace(show_structures=show_structures):
-        yield s
+    ali = ba.decode_trace(show_structures=show_structures,highlight_identity=highlight_identity)
+
+    yield from ali
 
     if verbose:
         yield from ba.eval_trace()
@@ -307,13 +323,15 @@ def add_bialign_parameters(parser):
     parser.add_argument("--show_structures",action='store_true',help="Print structure annotation with alignment")
     parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
 
+    parser.add_argument("--highlight_identity",action='store_true',help="Highlight identity")
+
     parser.add_argument("--sequence_match_similarity", type=int,
             default=100, help="Similarity of matching nucleotides")
-    parser.add_argument("--sequence_mismatch_similarity", type=int, 
+    parser.add_argument("--sequence_mismatch_similarity", type=int,
             default=-50, help="Similarity of mismatching nucleotides")
     parser.add_argument("--structure_weight", type=int, default=100,
             help="Weighting factor for structure similarity")
-    parser.add_argument("--gap_cost", type=int, default=-50, 
+    parser.add_argument("--gap_cost", type=int, default=-50,
             help="Similarity of a single gap")
     parser.add_argument("--shift_cost", type=int, default=-50,
             help="Similarity of shifting the two scores against each other")
@@ -323,9 +341,8 @@ def add_bialign_parameters(parser):
 def main():
     parser = argparse.ArgumentParser(description= "Bialignment.")
     add_bialign_parameters(parser)
-    
+
     args = parser.parse_args()
-    print("Args",vars(args))
 
     for line in bialign(**vars(args)):
         print(line)
