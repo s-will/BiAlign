@@ -270,10 +270,17 @@ class BiAligner:
             anno_ali.append( alistr )
 
         if highlight_identity:
-            anno_ali[0],anno_ali[2] = highlight_structure_similarity( anno_ali[0], anno_ali[2],
-                                              sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
-            anno_ali[4],anno_ali[6] = highlight_structure_similarity( anno_ali[4], anno_ali[6],
-                                              sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
+            for i,j in [(4,6),(0,2)]:
+                sbpp = consensus_sbpp( alistrA = anno_ali[i], alistrB = anno_ali[j],
+                                       sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"]                                     )
+                structure = mea(sbpp, brackets="<>")[0]
+                anno_ali.insert(j+1,structure)
+
+#         if highlight_identity:
+#             anno_ali[0],anno_ali[2] = highlight_structure_similarity( anno_ali[0], anno_ali[2],
+#                                               sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
+#             anno_ali[4],anno_ali[6] = highlight_structure_similarity( anno_ali[4], anno_ali[6],
+#                                               sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
 
         return anno_ali
 
@@ -300,7 +307,7 @@ class BiAligner:
                     break
 
 # compute mea structure
-def mea(sbpp,gamma=1):
+def mea(sbpp,gamma=1,*,brackets="()"):
     n = len(sbpp)-1
     
     F = np.zeros((n+1,n+1),dtype='float')
@@ -340,8 +347,8 @@ def mea(sbpp,gamma=1):
         if k == j:
             stack.append((i,j-1))
         elif k == i:
-            structure[k]='('
-            structure[j]=')'
+            structure[k]=brackets[0]
+            structure[j]=brackets[1]
             stack.append((k+1,j-1))
         else:
             stack.append((i,k-1))
