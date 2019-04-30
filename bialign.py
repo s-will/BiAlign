@@ -82,6 +82,8 @@ class BiAligner:
 
     # make bpp symmetric (based on upper triangular matrix)
     # and set diagonal to unpaired probs
+    #
+    # NOTE: bpp and sbpp have 1-based access (row and column 0 are ignored) 
     @staticmethod
     def _symmetrize_bpps(bpp):
         n=len(bpp)-1
@@ -108,7 +110,7 @@ class BiAligner:
             x["pf"] = fc.pf()
             x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
             x["mea"] = mea(x["sbpp"])
-            x["structure"] = x["mea"][0]
+            x["structure"] = x["pf"][0]
         else:
             if len(structure)!=len(sequence):
                 print("Fixed structure and sequence must have the same length.")
@@ -261,7 +263,6 @@ class BiAligner:
         if not show_structures:
             return alignment
 
-
         # annotate with structure
         anno_ali = list()
         for alistr,rna in zip(alignment,rnas):
@@ -269,8 +270,10 @@ class BiAligner:
             anno_ali.append( alistr )
 
         if highlight_identity:
-            anno_ali[0],anno_ali[2] = highlight_structure_identity(anno_ali[0],anno_ali[2])
-            anno_ali[4],anno_ali[6] = highlight_structure_identity(anno_ali[4],anno_ali[6])
+            anno_ali[0],anno_ali[2] = highlight_structure_similarity( anno_ali[0], anno_ali[2],
+                                              sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
+            anno_ali[4],anno_ali[6] = highlight_structure_similarity( anno_ali[4], anno_ali[6],
+                                              sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
 
         return anno_ali
 
@@ -371,8 +374,24 @@ def parse_dotbracket(dbstr):
 
     return res
 
-# highlight matched base pairs in a pairwise alignment
-def highlight_structure_identity(alistrA,alistrB):
+# consensus base pair probabilities
+def consensus_sbpp(alistrA,sbppA,alistrB,sbppB):
+    sbpp = np.zeros( (len(alistrA)+1, len(alistrB)+1), dtype='float' )
+    
+    p0 = [1,1]
+    for i0,x0 in enumerate(zip(alistrA, alistrB)):
+        p1 = [1,1]
+        for i1,x1 in enumerate(zip(alistrA, alistrB)):
+            sbpp[i0+1,i1+1] = sqrt( sbppA[p0[0],p1[0]] * sbppB[p0[1],p1[1]] )
+            for k in range(2):
+                if x1[k]!="-": p1[k]+=1
+        for k in range(2):
+            if x0[k]!="-": p0[k]+=1
+
+    return sbpp
+
+# highlight matched base pairs in a pairwise alignment; for balanced dot bracket strings
+def highlight_structure_identity(alistrA, alistrB):
 
     strA = parse_dotbracket(alistrA)
     strB = parse_dotbracket(alistrB)
@@ -390,6 +409,24 @@ def highlight_structure_identity(alistrA,alistrB):
         res[1]+=y
 
     return res
+
+# highlight matched base pairs in a pairwise alignment; given sbpp matrices
+def highlight_structure_similarity(alistrA, alistrB, *, sbppA, sbppB):
+
+    sbpp = consensus_sbpp(alistrA,sbppA,alistrB,sbppB)
+
+    structure = parse_dotbracket(mea(sbpp)[0])
+
+    res = [ list(x) for x in [alistrA, alistrB] ]
+    for i in range(len(alistrA)):
+        for j in range(i+1,len(alistrA)): 
+            if structure[i] == j: 
+                res[0][i]="<"
+                res[1][i]="<"
+                res[0][j]=">"
+                res[1][j]=">"
+
+    return [ "".join(x) for x in res]
 
 def bialign(seqA,seqB,strA,strB,show_structures,highlight_identity,verbose,**args):
     ba = BiAligner(seqA,seqB,strA,strB,**args)
