@@ -307,7 +307,7 @@ class BiAligner:
                     break
 
 # compute mea structure
-def mea(sbpp,gamma=1,*,brackets="()"):
+def mea(sbpp,gamma=3,*,brackets="()"):
     n = len(sbpp)-1
     
     F = np.zeros((n+1,n+1),dtype='float')
@@ -385,15 +385,24 @@ def parse_dotbracket(dbstr):
 def consensus_sbpp(alistrA,sbppA,alistrB,sbppB):
     sbpp = np.zeros( (len(alistrA)+1, len(alistrB)+1), dtype='float' )
     
+    length = [len(sbppA)-1, len(sbppB)-1]
+
     p0 = [1,1]
     for i0,x0 in enumerate(zip(alistrA, alistrB)):
         p1 = [1,1]
         for i1,x1 in enumerate(zip(alistrA, alistrB)):
-            sbpp[i0+1,i1+1] = sqrt( sbppA[p0[0],p1[0]] * sbppB[p0[1],p1[1]] )
+            pr = [0,0]
+            for k,sbppX in [(0,sbppA),(1,sbppB)]:
+                if p0[k]<=length[k] and p1[k]<=length[k]:
+                    pr[k] = sbppX[p0[k],p1[k]]
+
+            sbpp[i0+1,i1+1] = sqrt( pr[0] * pr[1] )
             for k in range(2):
-                if x1[k]!="-": p1[k]+=1
+                if x1[k]!='-': 
+                    p1[k]+=1
         for k in range(2):
-            if x0[k]!="-": p0[k]+=1
+            if x0[k]!='-':
+                p0[k]+=1
 
     return sbpp
 

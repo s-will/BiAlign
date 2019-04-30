@@ -5,6 +5,9 @@ UCCCAUAGGUA
 
 ./bialign.py UCCCAUAGGGAA UCCCAUAGGUA --strA ".(((...))).." --strB "(((...))).."
 
+./bialign.py GCUGUGAAGACGCUAGACUUAGACUGACUCAUGAUGAAGGGCCAAAGCUCAGAGC UGCUGUGAAGACCUAGCUAGGUCUGAAGAGUGAUGAGGGGCCAAAGCUCGGAGC --max_shift 2 --sequence_match_sim 100 --sequence_mismatch_sim 0 --gap_cost -200 --shift_cost -100 --structure_w 100 --high --show_s
+
+
 ./bialign.py \
 gcgggggugcccgagccuggccaaaggggucgggcucaggacccgauggcguaggccugcguggguucaaaucccaccccccgca \
 gcagucguggccgagugguuaaggcgucugacucgaaaucagauucccucugggagcguagguucgaauccuaccggcugcg
