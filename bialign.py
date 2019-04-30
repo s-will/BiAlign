@@ -274,7 +274,7 @@ class BiAligner:
                 sbpp = consensus_sbpp( alistrA = anno_ali[i], alistrB = anno_ali[j],
                                        sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"]                                     )
                 structure = mea(sbpp, brackets="<>")[0]
-                anno_ali.insert(j+1,structure)
+                anno_ali.insert(j+2,structure)
 
 #         if highlight_identity:
 #             anno_ali[0],anno_ali[2] = highlight_structure_similarity( anno_ali[0], anno_ali[2],
