@@ -324,7 +324,7 @@ def mea(sbpp,gamma=3,*,brackets="()"):
                     F[i,j] = F[i,k-1] + C
                     T[i,j] = k
 
-            if i>=j:
+            if i+3>=j:
                 continue
 
             C = F[i+1,j-1] + 2*gamma*sbpp[i,j]
@@ -332,6 +332,17 @@ def mea(sbpp,gamma=3,*,brackets="()"):
                 candidates[j].append((i,C))
                 F[i,j] = C
                 T[i,j] = i
+
+
+#     for i in reversed(range(1,n+1)):
+#        for j in range(i, n+1):
+#            F[i,j] = F[i,j-1] + sbpp[j][j]
+#            T[i,j] = j
+#            for k in range(i,j-3):
+#                newF = F[i,k-1] + F[k+1,j-1] + 2*gamma*sbpp[k,j]
+#                if F[i,j] < newF:
+#                    F[i,j] = newF
+#                    T[i,j] = k
 
     # trace back
     
@@ -341,9 +352,9 @@ def mea(sbpp,gamma=3,*,brackets="()"):
     
     while stack:
         (i,j) = stack.pop()
-        if i>=j: continue
-
         k = T[i,j]
+        if i+3>=j or k==0: continue
+
         if k == j:
             stack.append((i,j-1))
         elif k == i:
@@ -353,6 +364,8 @@ def mea(sbpp,gamma=3,*,brackets="()"):
         else:
             stack.append((i,k-1))
             stack.append((k+1,j-1))
+            structure[k]=brackets[0]
+            structure[j]=brackets[1]
 
     return ("".join(structure[1:]),F[1,n])
 
@@ -393,7 +406,9 @@ def consensus_sbpp(alistrA,sbppA,alistrB,sbppB):
         for i1,x1 in enumerate(zip(alistrA, alistrB)):
             pr = [0,0]
             for k,sbppX in [(0,sbppA),(1,sbppB)]:
-                if p0[k]<=length[k] and p1[k]<=length[k]:
+                if x0[k]=='-' or x1[k]=='-':
+                    pr[k]=0
+                else:
                     pr[k] = sbppX[p0[k],p1[k]]
 
             sbpp[i0+1,i1+1] = sqrt( pr[0] * pr[1] )
