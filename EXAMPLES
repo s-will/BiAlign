@@ -22,7 +22,12 @@ UCCCAUAGGUA
 
 ./bialign.py UCCCAUAGGGAA UCCCAUAGGUA --strA ".(((...))).." --strB "(((...))).."
 
-./bialign.py GCUGUGAAGACGCUAGACUUAGACUGACUCAUGAUGAAGGGCCAAAGCUCAGAGC UGCUGUGAAGACCUAGCUAGGUCUGAAGAGUGAUGAGGGGCCAAAGCUCGGAGC --max_shift 2 --sequence_match_sim 100 --sequence_mismatch_sim 0 --gap_cost -200 --shift_cost -100 --structure_w 100 --high --show_s
+
+
+
+Shifts vs gaps
+./bialign.py GCUGUGAAGACGCUAGACUUAGACUGACUCAUGAUGAAGGGCCAAAGCUCAGAGC UGCUGUGAAGACCUAGCUAGGUCUGAAGAGUGAUGAGGGGCCAAAGCUCGGAGC --sequence_match_sim 100 --sequence_mismatch_sim 0 --gap_cost -100 --shift_cost -200 --structure_w 100 --high --show_s --max_shift 2
+here if shifts are much cheaper than gaps, we get 1 shift in place of 2 gaps (1 per pair alignment)!
 
 
 ./bialign.py \
