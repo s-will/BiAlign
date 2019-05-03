@@ -39,23 +39,25 @@ class BiAligner:
     #     and
     #       function that returns list of case score components
     def recursionCases(self,i,j,k,l):
+        mu1ij = self.mu1(i,j)
+        mu2kl = self.mu2(k,l)
         # synchronous cases
-        yield ((1,1,1,1), self.mu1(i,j) + self.mu2(k,l))
+        yield ((1,1,1,1), mu1ij + mu2kl)
         yield ((1,0,1,0), self.g1A(i)   + self.g2A(k))
         yield ((0,1,0,1), self.g1B(j)   + self.g2B(l))
         # shifting
-        yield ((1,1,0,0), self.mu1(i,j) + self._params["shift_cost"])
-        yield ((0,0,1,1), self.mu2(i,j) + self._params["shift_cost"])
+        yield ((1,1,0,0), mu1ij + self._params["shift_cost"])
+        yield ((0,0,1,1), mu2kl + self._params["shift_cost"])
 
         yield ((1,0,0,0), self.g1A(i) + self._params["shift_cost"])
         yield ((0,1,0,0), self.g1B(j) + self._params["shift_cost"])
         yield ((0,0,1,0), self.g2A(k) + self._params["shift_cost"])
         yield ((0,0,0,1), self.g2B(l) + self._params["shift_cost"])
 
-        yield ((1,0,1,1), self.g1A(i) + self.mu2(k,l) + self._params["shift_cost"])
-        yield ((0,1,1,1), self.g1B(j) + self.mu2(k,l) + self._params["shift_cost"])
-        yield ((1,1,1,0), self.g2A(k) + self.mu1(i,j) + self._params["shift_cost"])
-        yield ((1,1,0,1), self.g2B(l) + self.mu1(i,j) + self._params["shift_cost"])
+        yield ((1,0,1,1), self.g1A(i) + mu2kl + self._params["shift_cost"])
+        yield ((0,1,1,1), self.g1B(j) + mu2kl + self._params["shift_cost"])
+        yield ((1,1,1,0), self.g2A(k) + mu1ij + self._params["shift_cost"])
+        yield ((1,1,0,1), self.g2B(l) + mu1ij + self._params["shift_cost"])
 
         # double-shift cases -- these cases can be replaced by two others --> skip
         # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._params["shift_cost"])
@@ -159,13 +161,14 @@ class BiAligner:
             return self._params["sequence_mismatch_similarity"]
 
     def _structure_similarity(self,i,j):
-        return int( self._params["structure_weight"] *
+        sim = int( self._params["structure_weight"] *
                     (
                       sqrt(self.rnaA["up"][i]*self.rnaB["up"][j])
                       + sqrt(self.rnaA["down"][i]*self.rnaB["down"][j])
                       + sqrt(self.rnaA["unp"][i]*self.rnaB["unp"][j])
                     )
                   )
+        return sim
     # Scoring functions
     # note: scoring functions have 1-based indices
 

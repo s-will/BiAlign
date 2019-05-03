@@ -1,3 +1,20 @@
+Stem sliding
+./bialign.py GGGGAAACCCC GGGGAAACCCC --strA "(((....)))." --strB ".(((....)))" --show --high --structure 100 --max_shift 1
+
+SCORE:1900
+(((....))).-
+GGGGAAACCCC-
+.(((....)))-
+GGGGAAACCCC-
+............
+-(((....))).
+-GGGgAAaCCCc
+.(((....)))-
+gGGGaAAcCCC-
+.<<<....>>>.
+
+
+Another one:
 .(((...)))..
 UCCCAUAGGGAA
 UCCCAUAGGUA
