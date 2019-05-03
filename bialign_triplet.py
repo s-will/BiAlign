@@ -20,15 +20,19 @@ class BiAlignerTriplet (BiAligner):
     #     and
     #       function that returns list of case score components
     def recursionCases(self,i,j,k):
+        mu1ij = self.mu1(i,j)
+        mu2ik = self.mu2(i,k)
+        Delta = self._params["shift_cost"]
+
         # synchronous cases
-        yield ((1,1,1), self.mu1(i,j) + self.mu2(i,k))
-        yield ((1,0,0), self.g1A(i)   + self.g2A(i))
-        yield ((0,1,1), self.g1B(j)   + self.g2B(k))
+        yield ((1,1,1), mu1ij + mu2ik))
+        yield ((1,0,0), self.g1A(i) + self.g2A(i))
+        yield ((0,1,1), self.g1B(j) + self.g2B(k))
         # shifting
-        yield ((1,1,0), self.mu1(i,j) + self.g2A(i) + self._params["shift_cost"])
-        yield ((1,0,1), self.mu2(i,k) + self.g1A(i) + self._params["shift_cost"])
-        yield ((0,1,0), self.g1B(j)   + self._params["shift_cost"])
-        yield ((0,0,1), self.g2B(k)   + self._params["shift_cost"])
+        yield ((1,1,0), mu1ij + self.g2A(i) + Delta)
+        yield ((1,0,1), mu2ik + self.g1A(i) + Delta)
+        yield ((0,1,0), self.g1B(j) + Delta)
+        yield ((0,0,1), self.g2B(k) + Delta)
 
     def guardCase(self,x,i,j,k):
         (io,jo,ko) = x[0]

@@ -41,23 +41,25 @@ class BiAligner:
     def recursionCases(self,i,j,k,l):
         mu1ij = self.mu1(i,j)
         mu2kl = self.mu2(k,l)
+        Delta = self._params["shift_cost"]
+
         # synchronous cases
         yield ((1,1,1,1), mu1ij + mu2kl)
         yield ((1,0,1,0), self.g1A(i)   + self.g2A(k))
         yield ((0,1,0,1), self.g1B(j)   + self.g2B(l))
         # shifting
-        yield ((1,1,0,0), mu1ij + self._params["shift_cost"])
-        yield ((0,0,1,1), mu2kl + self._params["shift_cost"])
+        yield ((1,1,0,0), mu1ij + Delta)
+        yield ((0,0,1,1), mu2kl + Delta)
 
-        yield ((1,0,0,0), self.g1A(i) + self._params["shift_cost"])
-        yield ((0,1,0,0), self.g1B(j) + self._params["shift_cost"])
-        yield ((0,0,1,0), self.g2A(k) + self._params["shift_cost"])
-        yield ((0,0,0,1), self.g2B(l) + self._params["shift_cost"])
+        yield ((1,0,0,0), self.g1A(i) + Delta)
+        yield ((0,1,0,0), self.g1B(j) + Delta)
+        yield ((0,0,1,0), self.g2A(k) + Delta)
+        yield ((0,0,0,1), self.g2B(l) + Delta)
 
-        yield ((1,0,1,1), self.g1A(i) + mu2kl + self._params["shift_cost"])
-        yield ((0,1,1,1), self.g1B(j) + mu2kl + self._params["shift_cost"])
-        yield ((1,1,1,0), self.g2A(k) + mu1ij + self._params["shift_cost"])
-        yield ((1,1,0,1), self.g2B(l) + mu1ij + self._params["shift_cost"])
+        yield ((1,0,1,1), self.g1A(i) + mu2kl + Delta)
+        yield ((0,1,1,1), self.g1B(j) + mu2kl + Delta)
+        yield ((1,1,1,0), self.g2A(k) + mu1ij + Delta)
+        yield ((1,1,0,1), self.g2B(l) + mu1ij + Delta)
 
         # double-shift cases -- these cases can be replaced by two others --> skip
         # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._params["shift_cost"])
