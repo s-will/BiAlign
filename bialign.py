@@ -7,6 +7,7 @@ import argparse
 import numpy as np
 from math import log,exp,sqrt
 
+
 ## Alignment factory
 class BiAligner:
     def __init__(self, seqA, seqB, strA, strB, **params):
@@ -244,9 +245,30 @@ class BiAligner:
                 pos+=1
         return res
 
+    @staticmethod
+    def _shift_string(ali, idx):
+        length = len(ali[0])
+        
+        def shift(i):
+            c1 = "X"
+            c2 = "X"
+            if ali[idx][i]=="-":
+                c1 = "-"
+            if ali[idx+2][i]=="-":
+                c2 = "-"
+
+            if c1==c2:
+                return "."
+            elif c1=="-":
+                return ">"
+            elif c2=="-":
+                return "<"
+
+        s=[shift(i) for i in range(length)]
+        return "".join(s)  
+
     # decode trace to alignment strings
-    def decode_trace(self, *, trace=None,
-            show_structures=False,highlight_identity=False):
+    def decode_trace(self, *, trace=None):
         if trace is None:
             trace = self.traceback()
 
@@ -261,12 +283,12 @@ class BiAligner:
                     alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
                     pos[s]+=1
 
-        if highlight_identity:
-            alignment[0],alignment[1] = highlight_sequence_identity(alignment[0],alignment[1])
-            alignment[2],alignment[3] = highlight_sequence_identity(alignment[2],alignment[3])
+        #alignment[0],alignment[1] = highlight_sequence_identity(alignment[0],alignment[1])
+        #alignment[2],alignment[3] = highlight_sequence_identity(alignment[2],alignment[3])
 
-        if not show_structures:
-            return alignment
+        # compute consensus sequences
+        cons_seq = [consensus_sequence(alignment[2*i],alignment[2*i+1])
+                    for i in range(2)]
 
         # annotate with structure
         anno_ali = list()
@@ -274,20 +296,80 @@ class BiAligner:
             anno_ali.append( self._transfer_gaps(alistr,rna["structure"]) )
             anno_ali.append( alistr )
 
-        if highlight_identity:
-            for i,j in [(4,6),(0,2)]:
-                sbpp = consensus_sbpp( alistrA = anno_ali[i], alistrB = anno_ali[j],
-                                       sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"]                                     )
-                structure = mea(sbpp, brackets="<>")[0]
-                anno_ali.insert(j+2,structure)
+        for i,j in [(4,6),(0,2)]:
+            sbpp = consensus_sbpp( alistrA = anno_ali[i], alistrB = anno_ali[j],
+                                   sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"]                                     )
+            structure = mea(sbpp, brackets="[]")[0]
+            anno_ali.insert(j+2,structure)
 
-#         if highlight_identity:
-#             anno_ali[0],anno_ali[2] = highlight_structure_similarity( anno_ali[0], anno_ali[2],
-#                                               sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
-#             anno_ali[4],anno_ali[6] = highlight_structure_similarity( anno_ali[4], anno_ali[6],
-#                                               sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"] )
+        shift_strings=list()
+        for i in range(2):
+            shift_strings.append(self._shift_string(alignment,i))
 
-        return anno_ali
+        alignment = anno_ali
+
+        alignment.insert(len(alignment),cons_seq[1])
+        alignment.insert(len(alignment)//2,cons_seq[0])
+
+        alignment.extend(shift_strings)
+
+        nameA = self._params["nameA"]
+        nameB = self._params["nameB"]
+
+        struct_postfix=" ss"
+        names = [
+         nameA+struct_postfix,
+         nameA,
+         nameB+struct_postfix,
+         nameB,
+         "consensus"+struct_postfix,
+         "consensus",
+         nameA+struct_postfix,
+         nameA,
+         nameB+struct_postfix,
+         nameB,
+         "consensus"+struct_postfix,
+         "consensus",
+         nameA+" shifts",
+         nameB+" shifts"
+        ]
+
+        width = max(map(len,names)) + 4
+
+        #add names of single lines
+        if not self._params["nodescription"]:
+            alignment = [("{:{width}}{}").format(name, alistr, width=width) for alistr, name in zip(alignment, names)]
+
+        nl = len(alignment)
+        alignment.append("")
+
+
+        mode = self._params["mode"]
+
+        modes = {
+                 "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
+                 "sorted_sym": [0, 1, 3, 2, 5, 4, nl] + [6, 7, 9, 8, 11, 10, nl] + [12, 13],
+                 "sorted_terse": [1, 5, 3, 4, nl] + [6, 10, 8, 11, nl] +
+                 [12, 13],
+                 "raw": [1,3,7,9],
+                 "raw_struct": list(range(4)) + list(range(6,10)),
+                 "full": range(len(alignment))
+                }
+        if mode in modes:
+            order = modes[mode]
+        else:
+            print("WARNING: unknown output mode. Expect one of " +
+                    str(list(modes.keys())) )
+            order = modes["sorted"]
+
+        # re-sort
+        alignment = [alignment[i] for i in order]
+                    
+        # re-sort, terse
+        #alignment = [alignment[i] for i in ]
+
+
+        return alignment
 
     # evaluate trace
     def eval_trace(self, trace=None):
@@ -338,17 +420,6 @@ def mea(sbpp,gamma=3,*,brackets="()"):
                 F[i,j] = C
                 T[i,j] = i
 
-
-#     for i in reversed(range(1,n+1)):
-#        for j in range(i, n+1):
-#            F[i,j] = F[i,j-1] + sbpp[j][j]
-#            T[i,j] = j
-#            for k in range(i,j-3):
-#                newF = F[i,k-1] + F[k+1,j-1] + 2*gamma*sbpp[k,j]
-#                if F[i,j] < newF:
-#                    F[i,j] = newF
-#                    T[i,j] = k
-
     # trace back
     
     structure = ['.']*(n+1)
@@ -385,6 +456,14 @@ def highlight_sequence_identity(alistrA,alistrB):
         res[1]+=y
     return res
 
+def consensus_sequence(alistrA,alistrB):
+    def c(x,y):
+        if (x==y):
+            return x # "*"
+        else:
+            return "."
+    return "".join([c(x,y) for x,y in
+                   zip(alistrA.upper(),alistrB.upper())])
 
 def parse_dotbracket(dbstr):
     res = [-1] * len(dbstr)
@@ -464,13 +543,14 @@ def highlight_structure_similarity(alistrA, alistrB, *, sbppA, sbppB):
 
     return [ "".join(x) for x in res]
 
-def bialign(seqA,seqB,strA,strB,show_structures,highlight_identity,verbose,**args):
+def bialign(seqA, seqB, strA, strB, verbose, **args):
     ba = BiAligner(seqA,seqB,strA,strB,**args)
 
     optscore = ba.optimize()
-    yield "SCORE:" + str(optscore)
+    yield "SCORE: " + str(optscore)
+    yield ""
 
-    ali = ba.decode_trace(show_structures=show_structures,highlight_identity=highlight_identity)
+    ali = ba.decode_trace()
 
     yield from ali
 
@@ -482,10 +562,14 @@ def add_bialign_parameters(parser):
     parser.add_argument("seqB",help="RNA sequence B")
     parser.add_argument("--strA",default=None,help="RNA structure A")
     parser.add_argument("--strB",default=None,help="RNA structure B")
-    parser.add_argument("--show_structures",action='store_true',help="Print structure annotation with alignment")
+    parser.add_argument("--nameA",default="RNA A",help="RNA name A")
+    parser.add_argument("--nameB",default="RNA B",help="RNA name B")
     parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
 
-    parser.add_argument("--highlight_identity",action='store_true',help="Highlight identity")
+    parser.add_argument("--nodescription",action='store_true',
+                        help="Don't prefix the strings in output alignment with descriptions")
+    parser.add_argument("--mode", default="sorted",
+                        help="Output mode")
 
     parser.add_argument("--sequence_match_similarity", type=int,
             default=100, help="Similarity of matching nucleotides")
