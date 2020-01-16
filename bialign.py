@@ -10,6 +10,18 @@ from math import log,exp,sqrt
 
 ## Alignment factory
 class BiAligner:
+    nl = 14
+    modes = {
+             "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
+             "sorted_sym": [0, 1, 3, 2, 5, 4, nl] + [6, 7, 9, 8, 11, 10, nl] + [12, 13],
+             "sorted_terse": [1, 5, 3, 4, nl] + [6, 10, 8, 11, nl] +
+             [12, 13],
+             "raw": [1,3,7,9],
+             "raw_struct": list(range(4)) + list(range(6,10)),
+             "full": range(nl)
+            }
+
+
     def __init__(self, seqA, seqB, strA, strB, **params):
         self.rnaA = self._preprocess_seq(seqA,strA)
         self.rnaB = self._preprocess_seq(seqB,strB)
@@ -267,6 +279,15 @@ class BiAligner:
         s=[shift(i) for i in range(length)]
         return "".join(s)  
 
+    @staticmethod
+    def auto_complete(x,xs):
+        xs = list(xs)
+        xs.sort()
+        for y in xs:
+            if y.startswith(x):
+                return y
+        return x
+
     # decode trace to alignment strings
     def decode_trace(self, *, trace=None):
         if trace is None:
@@ -340,27 +361,16 @@ class BiAligner:
         if not self._params["nodescription"]:
             alignment = [("{:{width}}{}").format(name, alistr, width=width) for alistr, name in zip(alignment, names)]
 
-        nl = len(alignment)
         alignment.append("")
 
+        mode = self.auto_complete(self._params["mode"],self.modes.keys())
 
-        mode = self._params["mode"]
-
-        modes = {
-                 "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
-                 "sorted_sym": [0, 1, 3, 2, 5, 4, nl] + [6, 7, 9, 8, 11, 10, nl] + [12, 13],
-                 "sorted_terse": [1, 5, 3, 4, nl] + [6, 10, 8, 11, nl] +
-                 [12, 13],
-                 "raw": [1,3,7,9],
-                 "raw_struct": list(range(4)) + list(range(6,10)),
-                 "full": range(len(alignment))
-                }
-        if mode in modes:
-            order = modes[mode]
+        if mode in self.modes:
+            order = self.modes[mode]
         else:
             print("WARNING: unknown output mode. Expect one of " +
-                    str(list(modes.keys())) )
-            order = modes["sorted"]
+                    str(list(self.modes.keys())) )
+            order = self.modes["sorted"]
 
         # re-sort
         alignment = [alignment[i] for i in order]
@@ -569,7 +579,7 @@ def add_bialign_parameters(parser):
     parser.add_argument("--nodescription",action='store_true',
                         help="Don't prefix the strings in output alignment with descriptions")
     parser.add_argument("--mode", default="sorted",
-                        help="Output mode")
+                        help="Output mode [call --mode help for a list of options]")
 
     parser.add_argument("--sequence_match_similarity", type=int,
             default=100, help="Similarity of matching nucleotides")
@@ -589,6 +599,12 @@ def main():
     add_bialign_parameters(parser)
 
     args = parser.parse_args()
+
+    if args.mode == "help":
+        print()
+        print("Available modes: "+", ".join(BiAligner.modes.keys()))
+        print()
+        exit()
 
     for line in bialign(**vars(args)):
         print(line)
