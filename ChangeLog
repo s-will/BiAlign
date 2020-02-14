@@ -1,0 +1,12 @@
+0.2 (Feb 14 2020)
+    corresponding to the LNBI-CIBB post-proceedings submission
+    * add version option
+    * more flexible, prettier output of result bi-alignment
+0.1 (May 03, 2019)
+   corresponding to the CIBB conference submission
+   *  stral-like scoring of structure
+   *  highlighting in output
+   *  basic bi-alignment functionality (treat bi-alignments like four-way
+   *  alignments)
+pre-versions:
+    incomplete bi-alignment as three-way alignment

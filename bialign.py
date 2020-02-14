@@ -7,6 +7,7 @@ import argparse
 import numpy as np
 from math import log,exp,sqrt
 
+VERSION_STRING = "BiAlign 0.2"
 
 ## Alignment factory
 class BiAligner:
@@ -593,6 +594,8 @@ def add_bialign_parameters(parser):
             help="Similarity of shifting the two scores against each other")
     parser.add_argument("--max_shift", type=int, default=2,
             help="Maximal number of shifts away from the diagonal in either direction")
+
+    parser.add_argument("--version", action='version', version=VERSION_STRING )
 
 def main():
     parser = argparse.ArgumentParser(description= "Bialignment.")
