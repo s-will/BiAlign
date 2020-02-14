@@ -584,14 +584,14 @@ def add_bialign_parameters(parser):
     parser.add_argument("--sequence_match_similarity", type=int,
             default=100, help="Similarity of matching nucleotides")
     parser.add_argument("--sequence_mismatch_similarity", type=int,
-            default=-50, help="Similarity of mismatching nucleotides")
+            default=0, help="Similarity of mismatching nucleotides")
     parser.add_argument("--structure_weight", type=int, default=100,
             help="Weighting factor for structure similarity")
-    parser.add_argument("--gap_cost", type=int, default=-50,
+    parser.add_argument("--gap_cost", type=int, default=-200,
             help="Similarity of a single gap")
-    parser.add_argument("--shift_cost", type=int, default=-50,
+    parser.add_argument("--shift_cost", type=int, default=-250,
             help="Similarity of shifting the two scores against each other")
-    parser.add_argument("--max_shift", type=int, default=3,
+    parser.add_argument("--max_shift", type=int, default=2,
             help="Maximal number of shifts away from the diagonal in either direction")
 
 def main():
