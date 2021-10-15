@@ -7,7 +7,7 @@ import argparse
 import numpy as np
 from math import log,exp,sqrt
 
-VERSION_STRING = "BiAlign 0.2"
+VERSION_STRING = "BiAlign 0.3a"
 
 ## Alignment factory
 class BiAligner:
@@ -24,11 +24,12 @@ class BiAligner:
 
 
     def __init__(self, seqA, seqB, strA, strB, **params):
-        self.rnaA = self._preprocess_seq(seqA,strA)
-        self.rnaB = self._preprocess_seq(seqB,strB)
-
         # parametrization
         self._params = params
+
+        self.molA = self._preprocess_seq(seqA, strA)
+        self.molB = self._preprocess_seq(seqB, strB)
+
 
         #print( "Structure similarity",
         #       [ ((i,j),s) for i in range(1,len(seqA)+1)
@@ -37,6 +38,15 @@ class BiAligner:
 
         # the dynamic programming matrix
         self.M = None
+
+    @property
+    def _is_rna(self):
+        return self._params['type'] == "RNA"
+
+    @staticmethod
+    def error(text):
+        print('ERROR:', text)
+        sys.exit(-1)
 
     # GENERAL ALGORITHM IDEAS
     #
@@ -116,31 +126,35 @@ class BiAligner:
 
         return sbpp
 
-    @staticmethod
-    def _preprocess_seq(sequence, structure):
+    def _preprocess_seq(self, sequence, structure):
         x = dict()
         x["seq"] = str(sequence)
         x["len"] = len(x["seq"])
 
         if structure is None:
-            fc = RNA.fold_compound(str(sequence))
-            x["mfe"] = fc.mfe()
-            x["pf"] = fc.pf()
-            x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
-            x["mea"] = mea(x["sbpp"])
-            x["structure"] = x["pf"][0]
+            if self._is_rna:
+                fc = RNA.fold_compound(str(sequence))
+                x["mfe"] = fc.mfe()
+                x["pf"] = fc.pf()
+                x["sbpp"] = BiAligner._symmetrize_bpps( fc.bpp() )
+                x["mea"] = mea(x["sbpp"])
+                x["structure"] = x["pf"][0]
+            else:
+                self.error("Structures have to be provided for aligning proteins")
         else:
             if len(structure)!=len(sequence):
-                print("Fixed structure and sequence must have the same length.")
-                sys.exit()
+                self.error("Provided structure and sequence must have the same length.")
             x["structure"] = structure
-            x["sbpp"] = BiAligner._bp_matrix_from_fixed_structure(structure)
+            if self._is_rna:
+                x["sbpp"] = BiAligner._bp_matrix_from_fixed_structure(structure)
 
         n = x["len"]
+
         #note: the arrays are 1-based (we just ignore entries at 0)
-        x["up"]   = [ sum( x["sbpp"][i][j] for j in range(1,i-1) ) for i in range(0,n+1) ]
-        x["down"] = [ sum( x["sbpp"][i][j] for j in range(i+1,n+1) ) for i in range(0,n+1) ]
-        x["unp"]  = [ 1.0 - x["up"][i] - x["down"][i] for i in range(0,n+1) ]
+        if self._is_rna:
+            x["up"]   = [ sum( x["sbpp"][i][j] for j in range(1,i-1) ) for i in range(0,n+1) ]
+            x["down"] = [ sum( x["sbpp"][i][j] for j in range(i+1,n+1) ) for i in range(0,n+1) ]
+            x["unp"]  = [ 1.0 - x["up"][i] - x["down"][i] for i in range(0,n+1) ]
 
         return x
 
@@ -161,9 +175,9 @@ class BiAligner:
         return bpm
 
     @staticmethod
-    def _expected_pairing(rna):
-        n = rna["len"]
-        sbpp = rna["sbpp"]
+    def _expected_pairing(mol):
+        n = mol["len"]
+        sbpp = mol["sbpp"]
         def ep(i):
             return sum( sbpp[i,j]*(j-i) for j in range(1,n+1) )
 
@@ -171,20 +185,27 @@ class BiAligner:
 
     # sequence similarity of residues i and j, 1-based
     def _sequence_similarity(self,i,j):
-        if self.rnaA["seq"][i-1]==self.rnaB["seq"][j-1]:
+        if self.molA["seq"][i-1]==self.molB["seq"][j-1]:
             return self._params["sequence_match_similarity"]
         else:
             return self._params["sequence_mismatch_similarity"]
 
     def _structure_similarity(self,i,j):
-        sim = int( self._params["structure_weight"] *
-                    (
-                      sqrt(self.rnaA["up"][i]*self.rnaB["up"][j])
-                      + sqrt(self.rnaA["down"][i]*self.rnaB["down"][j])
-                      + sqrt(self.rnaA["unp"][i]*self.rnaB["unp"][j])
-                    )
-                  )
+        if self._is_rna:
+            sim = int( self._params["structure_weight"] *
+                        (
+                          sqrt(self.molA["up"][i]*self.molB["up"][j])
+                          + sqrt(self.molA["down"][i]*self.molB["down"][j])
+                          + sqrt(self.molA["unp"][i]*self.molB["unp"][j])
+                        )
+                      )
+        else:
+            if self.molA["structure"][i-1]==self.molB["structure"][j-1]:
+                sim = 100
+            else:
+                sim = 0
         return sim
+
     # Scoring functions
     # note: scoring functions have 1-based indices
 
@@ -211,8 +232,8 @@ class BiAligner:
 
     # run alignment algorithm
     def optimize(self):
-        lenA = self.rnaA["len"]
-        lenB = self.rnaB["len"]
+        lenA = self.molA["len"]
+        lenB = self.molB["len"]
 
         self.M = np.zeros((lenA+1,lenB+1,lenA+1,lenB+1), dtype=int)
 
@@ -228,8 +249,8 @@ class BiAligner:
     # perform traceback
     # @returns list of 'trace arrows'
     def traceback(self):
-        lenA = self.rnaA["len"]
-        lenB = self.rnaB["len"]
+        lenA = self.molA["len"]
+        lenB = self.molB["len"]
 
         trace=[]
 
@@ -294,15 +315,15 @@ class BiAligner:
         if trace is None:
             trace = self.traceback()
 
-        rnas = (self.rnaA,self.rnaB,self.rnaA,self.rnaB)
-        pos = [0]*len(rnas)
-        alignment = [""]*len(rnas)
+        mols = (self.molA,self.molB,self.molA,self.molB)
+        pos = [0]*len(mols)
+        alignment = [""]*len(mols)
         for i,y in enumerate(trace):
-            for s in range(len(rnas)):
+            for s in range(len(mols)):
                 if (y[s]==0):
                     alignment[s] = alignment[s] + "-"
                 elif (y[s]==1):
-                    alignment[s] = alignment[s] + rnas[s]["seq"][pos[s]]
+                    alignment[s] = alignment[s] + mols[s]["seq"][pos[s]]
                     pos[s]+=1
 
         #alignment[0],alignment[1] = highlight_sequence_identity(alignment[0],alignment[1])
@@ -314,14 +335,17 @@ class BiAligner:
 
         # annotate with structure
         anno_ali = list()
-        for alistr,rna in zip(alignment,rnas):
-            anno_ali.append( self._transfer_gaps(alistr,rna["structure"]) )
+        for alistr,mol in zip(alignment,mols):
+            anno_ali.append( self._transfer_gaps(alistr,mol["structure"]) )
             anno_ali.append( alistr )
 
         for i,j in [(4,6),(0,2)]:
-            sbpp = consensus_sbpp( alistrA = anno_ali[i], alistrB = anno_ali[j],
-                                   sbppA=self.rnaA["sbpp"], sbppB=self.rnaB["sbpp"]                                     )
-            structure = mea(sbpp, brackets="[]")[0]
+            if self._is_rna:
+                sbpp = consensus_sbpp( alistrA = anno_ali[i], alistrB = anno_ali[j],
+                                       sbppA=self.molA["sbpp"], sbppB=self.molB["sbpp"]                                     )
+                structure = mea(sbpp, brackets="[]")[0]
+            else:
+                structure = consensus_sequence(anno_ali[i], anno_ali[j])
             anno_ali.insert(j+2,structure)
 
         shift_strings=list()
@@ -569,13 +593,16 @@ def bialign(seqA, seqB, strA, strB, verbose, **args):
         yield from ba.eval_trace()
 
 def add_bialign_parameters(parser):
-    parser.add_argument("seqA",help="RNA sequence A")
-    parser.add_argument("seqB",help="RNA sequence B")
-    parser.add_argument("--strA",default=None,help="RNA structure A")
-    parser.add_argument("--strB",default=None,help="RNA structure B")
-    parser.add_argument("--nameA",default="RNA A",help="RNA name A")
-    parser.add_argument("--nameB",default="RNA B",help="RNA name B")
+    parser.add_argument("seqA",help="sequence A")
+    parser.add_argument("seqB",help="sequence B")
+    parser.add_argument("--strA",default=None,help="structure A")
+    parser.add_argument("--strB",default=None,help="structure B")
+    parser.add_argument("--nameA",default="A",help="name A")
+    parser.add_argument("--nameB",default="B",help="name B")
     parser.add_argument("-v","--verbose",action='store_true',help="Verbose")
+
+    parser.add_argument("--type", default="RNA", type=str,
+        help="Type of molecule: RNA or Protein")
 
     parser.add_argument("--nodescription",action='store_true',
                         help="Don't prefix the strings in output alignment with descriptions")
@@ -596,6 +623,7 @@ def add_bialign_parameters(parser):
             help="Maximal number of shifts away from the diagonal in either direction")
 
     parser.add_argument("--version", action='version', version=VERSION_STRING )
+
 
 def main():
     parser = argparse.ArgumentParser(description= "Bialignment.")
