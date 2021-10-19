@@ -146,51 +146,49 @@ class BiAligner:
         # yield ((0,1,1,0), self.gamma + self.gamma + 2 * self._params["shift_cost"])
         # yield ((1,0,0,1), self.gamma + self.gamma + 2 * self._params["shift_cost"])
 
-    def affine_cost(self, source_state, x, Delta, mu1, mu2):
-        cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
-
-        for a,b in [[0,1],[2,3]]:
-            if x[a] and x[b]: # match 1
-                cost += mu1
-            elif not x[a] and not x[b]:
-                pass
-            elif x[a]:
-                cost += self.gamma
-                if source_state[a:b+1] != (1,0):
-                    cost += self.beta # gap opening
-            elif x[b]:
-                cost += self.gamma
-                if source_state[a:b+1] != (0,1):
-                    cost += self.beta # gap opening
-
-        return cost
-
-    def affine_recursion_cases(self, state, xs):
+    def affine_recursion_cases(self, state, idx):
         """yields recursion cases and their cost for affine gap cost
         """
-        i,j,k,l = xs
+        i, j, k, l = idx
 
         Delta = self._params["shift_cost"]
         mu1 = self.mu1(i,j)
         mu2 = self.mu2(k,l)
 
-        for source_state in self.states:
-           yield (source_state, state, self.affine_cost(source_state, state, Delta, mu1, mu2))
+        def cost(source_state, x):
+            cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
+
+            for a, b, mu in [(0, 1, mu1), (2, 3, mu2)]:
+                if x[a] and x[b]: # match
+                    cost += mu
+                elif not x[a] and not x[b]:
+                    pass
+                elif x[a]:
+                    cost += self.gamma
+                    if source_state[a:b+1] != (1,0):
+                        cost += self.beta # gap opening
+                elif x[b]:
+                    cost += self.gamma
+                    if source_state[a:b+1] != (0,1):
+                        cost += self.beta # gap opening
+            return cost
+
+        if self.guard_case(state, idx):
+            for source_state in self.states:
+                yield (source_state, state, cost(source_state, state))
 
         half_states = [(1,1), (1,0), (0,1)]
-        for half_state in half_states:
-            yield ( (state[0], state[1], half_state[0], half_state[1]),
-                    (0, 0, state[2], state[3]),
-                    self.affine_cost(
-                        (state[0], state[1], half_state[0], half_state[1]),
-                        (0, 0, state[2], state[3]),
-                        Delta, mu1, mu2) )
-            yield ( (half_state[0], half_state[1], state[2], state[3]),
-                    (state[0], state[1], 0, 0),
-                    self.affine_cost(
-                        (half_state[0], half_state[1], state[2], state[3]),
-                        (state[0], state[1], 0, 0),
-                        Delta, mu1, mu2) )
+
+        offset = (0, 0, state[2], state[3])
+        if self.guard_case(offset,idx):
+            for half_state in half_states:
+                target_state = (state[0], state[1], half_state[0], half_state[1])
+                yield (target_state, offset, cost(target_state, offset))
+        offset = (state[0], state[1], 0, 0)
+        if self.guard_case(offset,idx):
+            for half_state in half_states:
+                target_state = (half_state[0], half_state[1], state[2], state[3])
+                yield (target_state, offset, cost(target_state, offset))
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
@@ -203,14 +201,10 @@ class BiAligner:
     # def mul(self, xs):
     #    return sum(xs)
 
-    def guard_case(self,x,i,j,k,l):
-        (io,jo,ko,lo) = x[0]
+    def guard_case(self, offset, idx):
+        (i,j,k,l) = idx
+        (io,jo,ko,lo) = offset
         return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo>=0 and abs(k-ko-(i-io))<=self._max_shift and abs(l-lo-(j-jo))<=self._max_shift
-
-    def affine_guard_case(self,x, idx):
-        i, j, k, l = idx
-        io, jo, ko, lo = x[1]
-        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo >=0 and abs(k-ko-(i-io))<=self._max_shift and abs(l-lo-(j-jo))<=self._max_shift
 
     def eval_case(self, x, idx):
         i, j, k, l = idx
@@ -327,12 +321,12 @@ class BiAligner:
     # note: scoring functions have 1-based indices
 
     # match/mismatch cost for i~j, score 1
-    def mu1(self,i,j):
-        return self._sequence_similarity(i,j)
+    def mu1(self, i, j):
+        return self._sequence_similarity(i, j)
 
     # match/mismatch cost for i~j, score 2
-    def mu2(self,i,j):
-        return self._structure_similarity(i,j)
+    def mu2(self, i, j):
+        return self._structure_similarity(i, j)
 
     # run non-affine alignment algorithm
     def optimize(self):
@@ -348,12 +342,13 @@ class BiAligner:
             for j in range(0,lenB+1):
                 for k in range( max(0, i-self._max_shift), min(lenA+1, i+self._max_shift+1) ):
                     for l in range( max(0, j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
-                        if (i,j,k,l) == (0,0,0,0):
+                        idx = (i, j, k, l)
+                        if idx == (0,0,0,0):
                             continue
-                        self._M[i,j,k,l] = self.plus(
-                            self.eval_case(x, (i, j, k, l))
-                            for x in self.recursion_cases(i,j,k,l)
-                            if self.guard_case(x,i,j,k,l))
+                        self._M[idx] = self.plus(
+                            self.eval_case(x, idx)
+                            for x in self.recursion_cases(idx)
+                            if self.guard_case(x[0],idx))
         return self._M[lenA,lenB,lenA,lenB]
 
     # run affine alignment algorithm
@@ -379,8 +374,7 @@ class BiAligner:
                         for state in self.states:
                            self._M[state][idx] = self.plus(
                                self.affine_eval_case(x, idx)
-                               for x in self.affine_recursion_cases(state, idx)
-                               if self.affine_guard_case(x, idx))
+                               for x in self.affine_recursion_cases(state, idx))
 
         return max(self._M[state][lenA,lenB,lenA,lenB] for state in self.states)
 
@@ -396,7 +390,7 @@ class BiAligner:
 
         def trace_from(i, j , k, l):
             for x in self.recursion_cases(i,j,k,l):
-                if self.guard_case(x,i,j,k,l):
+                if self.guard_case(x[0], (i,j,k,l)):
                     if self.eval_case(x, (i, j, k, l)) == self._M[i,j,k,l]:
                         (io,jo,ko,lo) = x[0]
                         trace.append((io,jo,ko,lo))
@@ -419,7 +413,7 @@ class BiAligner:
                 return True
             i, j, k, l = idx
             for x in self.affine_recursion_cases(state, idx):
-                if self.affine_guard_case(x, idx):
+                if self.guard_case(x[1], idx):
                     if self.affine_eval_case(x, idx) == self._M[state][idx]:
                         (io,jo,ko,lo) = x[1]
                         trace.append((io, jo, ko, lo))
