@@ -2,6 +2,7 @@
 
 import RNA
 
+import itertools
 import sys
 import argparse
 import numpy as np
@@ -9,19 +10,60 @@ from math import log,exp,sqrt
 
 VERSION_STRING = "BiAlign 0.3a"
 
+
+class SparseMatrix4D:
+    """Sparse 4D matrix of integers
+
+    Valid entries (i,j,k,l) satisfy
+    * i in range(n+1)
+    * j in range(m+1)
+    * k in range(i-max_shift, i+max_shift+1)
+    * l in range(j-max_shift, j+max_shift+1)
+    """
+
+    def __init__(self, n, m, max_shift):
+        self._n, self._m, self._max_shift = n, m, max_shift
+        self._M = np.zeros((self._n+1, self._m+1,
+            2*self._max_shift+1, 2*self._max_shift+1),
+            dtype=int)
+
+    def index(self, k):
+        k = list(k)
+        k[2] -= k[0] - self._max_shift
+        k[3] -= k[1] - self._max_shift
+        return tuple(k)
+
+    def __getitem__(self, key):
+        return self._M[self.index(key)]
+
+    def __setitem__(self,key,value):
+        self._M[self.index(key)] = value
+
+class AffineDPMatrices:
+    def __init__(self, n, m, max_shift):
+        self._states = [ key for key in itertools.product(range(2),repeat=4)
+            if (key[0]!=0 or key[1]!=0) and (key[2]!=0 or key[3]!=0)]
+        self._Ms = {key:SparseMatrix4D(n, m, max_shift) for key in self._states}
+
+    def __getitem__(self, key):
+        return self._Ms[key]
+
+    @property
+    def states(self):
+        return self._states
+
 ## Alignment factory
 class BiAligner:
     nl = 14
-    modes = {
-             "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
-             "sorted_sym": [0, 1, 3, 2, 5, 4, nl] + [6, 7, 9, 8, 11, 10, nl] + [12, 13],
-             "sorted_terse": [1, 5, 3, 4, nl] + [6, 10, 8, 11, nl] +
-             [12, 13],
-             "raw": [1,3,7,9],
-             "raw_struct": list(range(4)) + list(range(6,10)),
-             "full": range(nl)
-            }
-
+    outmodes = {
+        "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
+        "sorted_sym": [0, 1, 3, 2, 5, 4, nl] + [6, 7, 9, 8, 11, 10, nl] + [12, 13],
+        "sorted_terse": [1, 5, 3, 4, nl] + [6, 10, 8, 11, nl] +
+        [12, 13],
+        "raw": [1,3,7,9],
+        "raw_struct": list(range(4)) + list(range(6,10)),
+        "full": range(nl)
+        }
 
     def __init__(self, seqA, seqB, strA, strB, **params):
         # parametrization
@@ -30,6 +72,16 @@ class BiAligner:
         self.molA = self._preprocess_seq(seqA, strA)
         self.molB = self._preprocess_seq(seqB, strB)
 
+        self.gamma = self._params["gap_cost"]
+        self.beta = self._params["gap_opening_cost"]
+
+        if self._params["simmatrix"]:
+            self._simmatrix = read_simmatrix(self._params["simmatrix"])
+        else:
+            self._simmatrix = None
+
+        self._max_shift = self._params["max_shift"]
+
 
         #print( "Structure similarity",
         #       [ ((i,j),s) for i in range(1,len(seqA)+1)
@@ -37,11 +89,15 @@ class BiAligner:
         #                   for s in [self._structure_similarity(i,j)] if s!=0])
 
         # the dynamic programming matrix
-        self.M = None
+        self._M = None
 
     @property
     def _is_rna(self):
         return self._params['type'] == "RNA"
+
+    @property
+    def _affine(self):
+        return self.beta != 0
 
     @staticmethod
     def error(text):
@@ -62,56 +118,114 @@ class BiAligner:
     #       pair of access info
     #     and
     #       function that returns list of case score components
-    def recursionCases(self,i,j,k,l):
+    def recursion_cases(self,i,j,k,l):
+        """recursion cases for non-affine alignment"""
         mu1ij = self.mu1(i,j)
         mu2kl = self.mu2(k,l)
         Delta = self._params["shift_cost"]
 
         # synchronous cases
         yield ((1,1,1,1), mu1ij + mu2kl)
-        yield ((1,0,1,0), self.g1A(i)   + self.g2A(k))
-        yield ((0,1,0,1), self.g1B(j)   + self.g2B(l))
+        yield ((1,0,1,0), self.gamma   + self.gamma)
+        yield ((0,1,0,1), self.gamma   + self.gamma)
         # shifting
         yield ((1,1,0,0), mu1ij + Delta)
         yield ((0,0,1,1), mu2kl + Delta)
 
-        yield ((1,0,0,0), self.g1A(i) + Delta)
-        yield ((0,1,0,0), self.g1B(j) + Delta)
-        yield ((0,0,1,0), self.g2A(k) + Delta)
-        yield ((0,0,0,1), self.g2B(l) + Delta)
+        yield ((1,0,0,0), self.gamma + Delta)
+        yield ((0,1,0,0), self.gamma + Delta)
+        yield ((0,0,1,0), self.gamma + Delta)
+        yield ((0,0,0,1), self.gamma + Delta)
 
-        yield ((1,0,1,1), self.g1A(i) + mu2kl + Delta)
-        yield ((0,1,1,1), self.g1B(j) + mu2kl + Delta)
-        yield ((1,1,1,0), self.g2A(k) + mu1ij + Delta)
-        yield ((1,1,0,1), self.g2B(l) + mu1ij + Delta)
+        yield ((1,0,1,1), self.gamma + mu2kl + Delta)
+        yield ((0,1,1,1), self.gamma + mu2kl + Delta)
+        yield ((1,1,1,0), self.gamma + mu1ij + Delta)
+        yield ((1,1,0,1), self.gamma + mu1ij + Delta)
 
         # double-shift cases -- these cases can be replaced by two others --> skip
-        # yield ((0,1,1,0), self.g1B(j) + self.g2A(k) + 2 * self._params["shift_cost"])
-        # yield ((1,0,0,1), self.g1A(i) + self.g2B(l) + 2 * self._params["shift_cost"])
+        # yield ((0,1,1,0), self.gamma + self.gamma + 2 * self._params["shift_cost"])
+        # yield ((1,0,0,1), self.gamma + self.gamma + 2 * self._params["shift_cost"])
+
+    def affine_cost(self, source_state, x, Delta, mu1, mu2):
+        cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
+
+        for a,b in [[0,1],[2,3]]:
+            if x[a] and x[b]: # match 1
+                cost += mu1
+            elif not x[a] and not x[b]:
+                pass
+            elif x[a]:
+                cost += self.gamma
+                if source_state[a:b+1] != (1,0):
+                    cost += self.beta # gap opening
+            elif x[b]:
+                cost += self.gamma
+                if source_state[a:b+1] != (0,1):
+                    cost += self.beta # gap opening
+
+        return cost
+
+    def affine_recursion_cases(self, state, xs):
+        """yields recursion cases and their cost for affine gap cost
+        """
+        i,j,k,l = xs
+
+        Delta = self._params["shift_cost"]
+        mu1 = self.mu1(i,j)
+        mu2 = self.mu2(k,l)
+
+        for source_state in self.states:
+           yield (source_state, state, self.affine_cost(source_state, state, Delta, mu1, mu2))
+
+        half_states = [(1,1), (1,0), (0,1)]
+        for half_state in half_states:
+            yield ( (state[0], state[1], half_state[0], half_state[1]),
+                    (0, 0, state[2], state[3]),
+                    self.affine_cost(
+                        (state[0], state[1], half_state[0], half_state[1]),
+                        (0, 0, state[2], state[3]),
+                        Delta, mu1, mu2) )
+            yield ( (half_state[0], half_state[1], state[2], state[3]),
+                    (state[0], state[1], 0, 0),
+                    self.affine_cost(
+                        (half_state[0], half_state[1], state[2], state[3]),
+                        (state[0], state[1], 0, 0),
+                        Delta, mu1, mu2) )
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
-        if xs != []:
-           return max(xs)
-        else:
-           return 0
+        try:
+            return max(xs)
+        except ValueError:
+            return -1<<30
 
     ## mul operator (sum in optimization, product in pf)
     # def mul(self, xs):
     #    return sum(xs)
 
-    def guardCase(self,x,i,j,k,l):
+    def guard_case(self,x,i,j,k,l):
         (io,jo,ko,lo) = x[0]
-        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo >=0 and abs(k-ko-(i-io))<=self._params["max_shift"] and abs(l-lo-(j-jo))<=self._params["max_shift"]
+        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo>=0 and abs(k-ko-(i-io))<=self._max_shift and abs(l-lo-(j-jo))<=self._max_shift
 
-    def evalCase(self,x,i,j,k,l):
-        (io,jo,ko,lo) = x[0]
-        return self.M[i-io,j-jo,k-ko,l-lo] + x[1]
+    def affine_guard_case(self,x, idx):
+        i, j, k, l = idx
+        io, jo, ko, lo = x[1]
+        return i-io>=0 and j-jo>=0 and k-ko>=0 and l-lo >=0 and abs(k-ko-(i-io))<=self._max_shift and abs(l-lo-(j-jo))<=self._max_shift
+
+    def eval_case(self, x, idx):
+        i, j, k, l = idx
+        io, jo, ko, lo = x[0]
+        return self._M[i-io,j-jo,k-ko,l-lo] + x[1]
+
+    def affine_eval_case(self, x, idx):
+        i, j, k, l = idx
+        io, jo, ko, lo = x[1]
+        return self._M[x[0]][i-io,j-jo,k-ko,l-lo] + x[2]
 
     # make bpp symmetric (based on upper triangular matrix)
     # and set diagonal to unpaired probs
     #
-    # NOTE: bpp and sbpp have 1-based access (row and column 0 are ignored) 
+    # NOTE: bpp and sbpp have 1-based access (row and column 0 are ignored)
     @staticmethod
     def _symmetrize_bpps(bpp):
         n=len(bpp)-1
@@ -140,7 +254,7 @@ class BiAligner:
                 x["mea"] = mea(x["sbpp"])
                 x["structure"] = x["pf"][0]
             else:
-                self.error("Structures have to be provided for aligning proteins")
+                self.error("Structures have to be provided when aligning proteins")
         else:
             if len(structure)!=len(sequence):
                 self.error("Provided structure and sequence must have the same length.")
@@ -185,8 +299,11 @@ class BiAligner:
 
     # sequence similarity of residues i and j, 1-based
     def _sequence_similarity(self,i,j):
+        if self._simmatrix:
+            return self._simmatrix[self.molA["seq"][i-1]][self.molB["seq"][j-1]]
+
         if self.molA["seq"][i-1]==self.molB["seq"][j-1]:
-            return self._params["sequence_match_similarity"]
+                return self._params["sequence_match_similarity"]
         else:
             return self._params["sequence_mismatch_similarity"]
 
@@ -217,47 +334,70 @@ class BiAligner:
     def mu2(self,i,j):
         return self._structure_similarity(i,j)
 
-    # gap cost for inserting i, score 1, in first sequence
-    def g1A(self,i):
-        return self._params["gap_cost"]
-    # gap cost for inserting i, score 1, in second sequence
-    def g1B(self,i):
-        return self._params["gap_cost"]
-    # gap cost for inserting i, score 2, in first sequence
-    def g2A(self,i):
-        return self._params["gap_cost"]
-    # gap cost for inserting i, score 2, in second sequence
-    def g2B(self,i):
-        return self._params["gap_cost"]
-
-    # run alignment algorithm
+    # run non-affine alignment algorithm
     def optimize(self):
+        if self._affine:
+            return self.affine_optimize()
+
         lenA = self.molA["len"]
         lenB = self.molB["len"]
 
-        self.M = np.zeros((lenA+1,lenB+1,lenA+1,lenB+1), dtype=int)
+        self._M = np.zeros((lenA+1,lenB+1,lenA+1,lenB+1), dtype='int32')
 
         for i in range(0,lenA+1):
             for j in range(0,lenB+1):
-                for k in range( max(0, i-self._params["max_shift"]), min(lenA+1, i+self._params["max_shift"]+1) ):
-                    for l in range( max(0, j-self._params["max_shift"]), min(lenB+1, j+self._params["max_shift"]+1) ):
-                        self.M[i,j,k,l] = self.plus( [ self.evalCase(x,i,j,k,l)
-                                                     for x in self.recursionCases(i,j,k,l)
-                                                     if self.guardCase(x,i,j,k,l) ] )
-        return self.M[lenA,lenB,lenA,lenB]
+                for k in range( max(0, i-self._max_shift), min(lenA+1, i+self._max_shift+1) ):
+                    for l in range( max(0, j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
+                        if (i,j,k,l) == (0,0,0,0):
+                            continue
+                        self._M[i,j,k,l] = self.plus(
+                            self.eval_case(x, (i, j, k, l))
+                            for x in self.recursion_cases(i,j,k,l)
+                            if self.guard_case(x,i,j,k,l))
+        return self._M[lenA,lenB,lenA,lenB]
+
+    # run affine alignment algorithm
+    def affine_optimize(self):
+        lenA = self.molA["len"]
+        lenB = self.molB["len"]
+
+        self._M = AffineDPMatrices(lenA, lenB, self._max_shift)
+        self.states = self._M.states
+
+        # initialize - [0,0,0,0] is finite only if state is 'both match'
+        for state in self.states:
+            self._M[state][0,0,0,0] = -1<<30 # -infinity
+        self._M[(1,1,1,1)][0,0,0,0] = 0
+
+        for i in range(0,lenA+1):
+            for j in range(0,lenB+1):
+                for k in range( max(0, i-self._max_shift), min(lenA+1, i+self._max_shift+1) ):
+                    for l in range( max(0, j-self._max_shift), min(lenB+1, j+self._max_shift+1) ):
+                        idx = (i,j,k,l)
+                        if idx == (0,0,0,0): # "initialization"
+                            continue
+                        for state in self.states:
+                           self._M[state][idx] = self.plus(
+                               self.affine_eval_case(x, idx)
+                               for x in self.affine_recursion_cases(state, idx)
+                               if self.affine_guard_case(x, idx))
+
+        return max(self._M[state][lenA,lenB,lenA,lenB] for state in self.states)
 
     # perform traceback
     # @returns list of 'trace arrows'
     def traceback(self):
+        if self._affine:
+            return self.affine_traceback()
         lenA = self.molA["len"]
         lenB = self.molB["len"]
 
         trace=[]
 
-        def trace_from(i,j,k,l):
-            for x in self.recursionCases(i,j,k,l):
-                if self.guardCase(x,i,j,k,l):
-                    if self.evalCase(x,i,j,k,l) == self.M[i,j,k,l]:
+        def trace_from(i, j , k, l):
+            for x in self.recursion_cases(i,j,k,l):
+                if self.guard_case(x,i,j,k,l):
+                    if self.eval_case(x, (i, j, k, l)) == self._M[i,j,k,l]:
                         (io,jo,ko,lo) = x[0]
                         trace.append((io,jo,ko,lo))
                         trace_from(i-io,j-jo,k-ko,l-lo)
@@ -265,6 +405,33 @@ class BiAligner:
 
         trace_from(lenA,lenB,lenA,lenB)
         return list(reversed(trace))
+
+    # perform traceback
+    # @returns list of 'trace arrows'
+    def affine_traceback(self):
+        lenA = self.molA["len"]
+        lenB = self.molB["len"]
+
+        trace=[]
+
+        def trace_from(state, idx):
+            if idx == (0,0,0,0) and state == (1,1,1,1):
+                return True
+            i, j, k, l = idx
+            for x in self.affine_recursion_cases(state, idx):
+                if self.affine_guard_case(x, idx):
+                    if self.affine_eval_case(x, idx) == self._M[state][idx]:
+                        (io,jo,ko,lo) = x[1]
+                        trace.append((io, jo, ko, lo))
+                        return trace_from(x[0], (i-io,j-jo,k-ko,l-lo))
+            return False
+        myidx = np.argmax([self._M[state][lenA,lenB,lenA,lenB] for state in self.states])
+        best_state=self.states[myidx]
+
+        if not trace_from(best_state, (lenA, lenB, lenA, lenB)):
+            print("WARNING: incomplete traceback. Alignment could be garbage.")
+        return list(reversed(trace))
+
 
     # transfer gap pattern from an alignment string to a sequence string
     @staticmethod
@@ -282,7 +449,7 @@ class BiAligner:
     @staticmethod
     def _shift_string(ali, idx):
         length = len(ali[0])
-        
+
         def shift(i):
             c1 = "X"
             c2 = "X"
@@ -299,7 +466,7 @@ class BiAligner:
                 return "<"
 
         s=[shift(i) for i in range(length)]
-        return "".join(s)  
+        return "".join(s)
 
     @staticmethod
     def auto_complete(x,xs):
@@ -388,18 +555,18 @@ class BiAligner:
 
         alignment.append("")
 
-        mode = self.auto_complete(self._params["mode"],self.modes.keys())
+        mode = self.auto_complete(self._params["outmode"],self.outmodes.keys())
 
-        if mode in self.modes:
-            order = self.modes[mode]
+        if mode in self.outmodes:
+            order = self.outmodes[mode]
         else:
             print("WARNING: unknown output mode. Expect one of " +
-                    str(list(self.modes.keys())) )
-            order = self.modes["sorted"]
+                    str(list(self.outmodes.keys())) )
+            order = self.outmodes["sorted"]
 
         # re-sort
         alignment = [alignment[i] for i in order]
-                    
+
         # re-sort, terse
         #alignment = [alignment[i] for i in ]
 
@@ -415,14 +582,14 @@ class BiAligner:
         for i,y in enumerate(trace):
             for k in range(4): pos[k] += y[k]
             # lookup case
-            for x in self.recursionCases(pos[0],pos[1],pos[2],pos[3]):
+            for x in self.recursion_cases(pos[0],pos[1],pos[2],pos[3]):
                 if x[0] == y:
                     line = " ".join([ str(x) for x in
                             [pos,
                             y,
                             x[1],
                             "-->",
-                            self.evalCase(x,pos[0],pos[1],pos[2],pos[3])
+                            self.eval_case(x, (pos[0],pos[1],pos[2],pos[3]))
                             ]
                         ])
                     yield line
@@ -431,7 +598,7 @@ class BiAligner:
 # compute mea structure
 def mea(sbpp,gamma=3,*,brackets="()"):
     n = len(sbpp)-1
-    
+
     F = np.zeros((n+1,n+1),dtype='float')
     T = np.zeros((n+1,n+1),dtype='int')
 
@@ -456,11 +623,11 @@ def mea(sbpp,gamma=3,*,brackets="()"):
                 T[i,j] = i
 
     # trace back
-    
+
     structure = ['.']*(n+1)
     stack = list()
     stack.append((1,n))
-    
+
     while stack:
         (i,j) = stack.pop()
         k = T[i,j]
@@ -516,7 +683,7 @@ def parse_dotbracket(dbstr):
 # consensus base pair probabilities
 def consensus_sbpp(alistrA,sbppA,alistrB,sbppB):
     sbpp = np.zeros( (len(alistrA)+1, len(alistrB)+1), dtype='float' )
-    
+
     length = [len(sbppA)-1, len(sbppB)-1]
 
     p0 = [1,1]
@@ -532,7 +699,7 @@ def consensus_sbpp(alistrA,sbppA,alistrB,sbppB):
 
             sbpp[i0+1,i1+1] = sqrt( pr[0] * pr[1] )
             for k in range(2):
-                if x1[k]!='-': 
+                if x1[k]!='-':
                     p1[k]+=1
         for k in range(2):
             if x0[k]!='-':
@@ -569,8 +736,8 @@ def highlight_structure_similarity(alistrA, alistrB, *, sbppA, sbppB):
 
     res = [ list(x) for x in [alistrA, alistrB] ]
     for i in range(len(alistrA)):
-        for j in range(i+1,len(alistrA)): 
-            if structure[i] == j: 
+        for j in range(i+1,len(alistrA)):
+            if structure[i] == j:
                 res[0][i]="<"
                 res[1][i]="<"
                 res[0][j]=">"
@@ -606,7 +773,7 @@ def add_bialign_parameters(parser):
 
     parser.add_argument("--nodescription",action='store_true',
                         help="Don't prefix the strings in output alignment with descriptions")
-    parser.add_argument("--mode", default="sorted",
+    parser.add_argument("--outmode", default="sorted",
                         help="Output mode [call --mode help for a list of options]")
 
     parser.add_argument("--sequence_match_similarity", type=int,
@@ -615,8 +782,10 @@ def add_bialign_parameters(parser):
             default=0, help="Similarity of mismatching nucleotides")
     parser.add_argument("--structure_weight", type=int, default=100,
             help="Weighting factor for structure similarity")
+    parser.add_argument("--gap_opening_cost", type=int, default=0,
+            help="Similarity of opening a gap (turns on affine gap cost if not 0)")
     parser.add_argument("--gap_cost", type=int, default=-200,
-            help="Similarity of a single gap")
+            help="Similarity of a single gap position")
     parser.add_argument("--shift_cost", type=int, default=-250,
             help="Similarity of shifting the two scores against each other")
     parser.add_argument("--max_shift", type=int, default=2,
@@ -624,6 +793,61 @@ def add_bialign_parameters(parser):
 
     parser.add_argument("--version", action='version', version=VERSION_STRING )
 
+    parser.add_argument("--simmatrix", type=str, default = None,
+            help = "Similarity matrix")
+
+blosum62 =\
+"""-  A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V  B  Z  X  *
+A  4 -1 -2 -2  0 -1 -1  0 -2 -1 -1 -1 -1 -2 -1  1  0 -3 -2  0 -2 -1  0 -4
+R -1  5  0 -2 -3  1  0 -2  0 -3 -2  2 -1 -3 -2 -1 -1 -3 -2 -3 -1  0 -1 -4
+N -2  0  6  1 -3  0  0  0  1 -3 -3  0 -2 -3 -2  1  0 -4 -2 -3  3  0 -1 -4
+D -2 -2  1  6 -3  0  2 -1 -1 -3 -4 -1 -3 -3 -1  0 -1 -4 -3 -3  4  1 -1 -4
+C  0 -3 -3 -3  9 -3 -4 -3 -3 -1 -1 -3 -1 -2 -3 -1 -1 -2 -2 -1 -3 -3 -2 -4
+Q -1  1  0  0 -3  5  2 -2  0 -3 -2  1  0 -3 -1  0 -1 -2 -1 -2  0  3 -1 -4
+E -1  0  0  2 -4  2  5 -2  0 -3 -3  1 -2 -3 -1  0 -1 -3 -2 -2  1  4 -1 -4
+G  0 -2  0 -1 -3 -2 -2  6 -2 -4 -4 -2 -3 -3 -2  0 -2 -2 -3 -3 -1 -2 -1 -4
+H -2  0  1 -1 -3  0  0 -2  8 -3 -3 -1 -2 -1 -2 -1 -2 -2  2 -3  0  0 -1 -4
+I -1 -3 -3 -3 -1 -3 -3 -4 -3  4  2 -3  1  0 -3 -2 -1 -3 -1  3 -3 -3 -1 -4
+L -1 -2 -3 -4 -1 -2 -3 -4 -3  2  4 -2  2  0 -3 -2 -1 -2 -1  1 -4 -3 -1 -4
+K -1  2  0 -1 -3  1  1 -2 -1 -3 -2  5 -1 -3 -1  0 -1 -3 -2 -2  0  1 -1 -4
+M -1 -1 -2 -3 -1  0 -2 -3 -2  1  2 -1  5  0 -2 -1 -1 -1 -1  1 -3 -1 -1 -4
+F -2 -3 -3 -3 -2 -3 -3 -3 -1  0  0 -3  0  6 -4 -2 -2  1  3 -1 -3 -3 -1 -4
+P -1 -2 -2 -1 -3 -1 -1 -2 -2 -3 -3 -1 -2 -4  7 -1 -1 -4 -3 -2 -2 -1 -2 -4
+S  1 -1  1  0 -1  0  0  0 -1 -2 -2  0 -1 -2 -1  4  1 -3 -2 -2  0  0  0 -4
+T  0 -1  0 -1 -1 -1 -1 -2 -2 -1 -1 -1 -1 -2 -1  1  5 -2 -2  0 -1 -1  0 -4
+W -3 -3 -4 -4 -2 -2 -3 -2 -2 -3 -2 -3 -1  1 -4 -3 -2 11  2 -3 -4 -3 -2 -4
+Y -2 -2 -2 -3 -2 -1 -2 -3  2 -1 -1 -2 -1  3 -3 -2 -2  2  7 -1 -3 -2 -1 -4
+V  0 -3 -3 -3 -1 -2 -2 -3 -3  3  1 -2  1 -1 -2 -2  0 -3 -1  4 -3 -2 -1 -4
+B -2 -1  3  4 -3  0  1 -1  0 -3 -4  0 -3 -3 -2  0 -1 -4 -3 -3  4  1 -1 -4
+Z -1  0  0  1 -3  3  4 -2  0 -3 -3  1 -1 -3 -1  0 -1 -3 -2 -2  1  4 -1 -4
+X  0 -1 -1 -1 -2 -1 -1 -1 -1 -1 -1 -1 -1 -1 -2  0  0 -2 -1 -1 -1 -1 -1 -4
+* -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4  1
+"""
+
+def read_simmatrix(filename, scale = 100):
+    if filename == "BLOSUM62":
+        lines = blosum62.split('\n')
+    else:
+        with open(filename,'r') as fh:
+            lines = fh.readlines()
+
+    keys = None
+    keys2 = []
+    matrix = dict()
+
+    for i, line in enumerate(lines):
+        if keys and i>len(keys):
+            break
+        line = line.split()
+        if line[0]=='-':
+            keys = line[1:]
+        else:
+            keys2.append(line[0])
+            matrix[line[0]] = {key:(scale * int(val)) for key, val in zip(keys,line[1:])}
+
+    if not keys == keys2:
+        print("ERROR while reading simmatrix {filename}.")
+    return matrix
 
 def main():
     parser = argparse.ArgumentParser(description= "Bialignment.")
@@ -631,9 +855,23 @@ def main():
 
     args = parser.parse_args()
 
-    if args.mode == "help":
+    if args.seqA == "example":
+        args.seqA = "MSKLVLIDGSSYLYRAFHALPPLTNAQGEPTGALFGVVNMLRATLKERPAYVAFVVDAPGKTFRDDLYADYKANRPSMPDELRAQVQPMCDIVHALGIDILRIDGVEADD"
+        args.strA = "HEEEEEHCTTCEEEEHHCCCCCCCCCCTTCCCHEEEEEHHHHHHHHHTTHEEEEEHHCCTTCCCTCCCCCCCCCTTCCCHHHHEEEEHEEEEEHEEEEEEEHHHHHHHHH"
+        args.seqB = "MVQIPQNPLILVDGSSYLYRAYHAFPPLTNSAGEPTGAMYGVLNMLRSLIMQYKPTHAAVVFDAKGKTFRDELFEHYKSHRPPMPDDLRAQIEPLHAMVKAMGLPLLAVS"
+        args.strB = "EEEEETEEEEEHCTTCEEEEEECCCCCCCTCCCTCCCHEEEEEHHEEEEEHEHCTCHHHHHHHHHTHHHHHHHHHHHHTCCTCCCTHHHHHHHHHHHHHHHHEEHEEEEH"
+
+        L = 60
+        args.seqA = args.seqA[:L]
+        args.strA = args.strA[:L]
+        args.seqB = args.seqB[:L]
+        args.strB = args.strB[:L]
+
+    print("\n".join(["Input:","seqA\t "+args.seqA,"seqB\t "+args.seqB,"strA\t "+args.strA,"strB\t "+args.strB,""]))
+
+    if args.outmode == "help":
         print()
-        print("Available modes: "+", ".join(BiAligner.modes.keys()))
+        print("Available modes: "+", ".join(BiAligner.outmodes.keys()))
         print()
         exit()
 
