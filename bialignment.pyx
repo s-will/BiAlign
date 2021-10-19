@@ -31,17 +31,11 @@ class SparseMatrix4D:
             dtype=int,
         )
 
-    def index(self, k):
-        k = list(k)
-        k[2] -= k[0] - self._max_shift
-        k[3] -= k[1] - self._max_shift
-        return tuple(k)
+    def __getitem__(self, k):
+        return self._M[k[0], k[1], k[2]-k[0]+self._max_shift, k[3]-k[1]+self._max_shift]
 
-    def __getitem__(self, key):
-        return self._M[self.index(key)]
-
-    def __setitem__(self, key, value):
-        self._M[self.index(key)] = value
+    def __setitem__(self, k, value):
+        self._M[k[0], k[1], k[2]-k[0]+self._max_shift, k[3]-k[1]+self._max_shift] = value
 
 
 class AffineDPMatrices:
@@ -158,19 +152,34 @@ class BiAligner:
         def cost(source_state, x):
             cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
 
-            for a, b, mu in [(0, 1, mu1), (2, 3, mu2)]:
-                if x[a] and x[b]:  # match
-                    cost += mu
-                elif not x[a] and not x[b]:
-                    pass
-                elif x[a]:
-                    cost += self.gamma
-                    if source_state[a : b + 1] != (1, 0):
-                        cost += self.beta  # gap opening
-                elif x[b]:
-                    cost += self.gamma
-                    if source_state[a : b + 1] != (0, 1):
-                        cost += self.beta  # gap opening
+            a, b, mu = (0, 1, mu1)
+            xa = x[a]
+            xb = x[b]
+            if xa and xb:  # match
+                cost += mu
+            elif xa and not xb:
+                cost += self.gamma
+                if not (source_state[a] == 1 and source_state[b] == 0):
+                    cost += self.beta  # gap opening
+            elif not xa and xb:
+                cost += self.gamma
+                if not (source_state[a] == 0 and source_state[b] == 1):
+                    cost += self.beta  # gap opening
+
+            a, b, mu = (2, 3, mu2)
+            xa = x[a]
+            xb = x[b]
+            if xa and xb:  # match
+                cost += mu
+            elif xa and not xb:
+                cost += self.gamma
+                if not (source_state[a] == 1 and source_state[b] == 0):
+                    cost += self.beta  # gap opening
+            elif not xa and xb:
+                cost += self.gamma
+                if not (source_state[a] == 0 and source_state[b] == 1):
+                    cost += self.beta  # gap opening
+
             return cost
 
         if self.guard_case(state, idx):
@@ -350,7 +359,7 @@ class BiAligner:
         lenA = self.molA["len"]
         lenB = self.molB["len"]
 
-        self._M = np.zeros((lenA + 1, lenB + 1, lenA + 1, lenB + 1), dtype="int32")
+        self._M = np.zeros((lenA + 1, lenB + 1, lenA + 1, lenB + 1), dtype=int)
 
         for i in range(0, lenA + 1):
             for j in range(0, lenB + 1):
