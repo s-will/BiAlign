@@ -2,8 +2,42 @@
 import argparse
 
 import bialignment as ba
+import sys
+from collections import defaultdict
 
 VERSION_STRING = f"BiAlign {ba.__version__}"
+
+def read_molecule(content):
+    result = defaultdict(lambda:"")
+    keys =["Query","Struc"]
+    for line in content.split('\n'):
+        line = line.split()
+        if not line:
+            continue
+        if line[0] in keys:
+            if len(line) != 4:
+                raise IOError("Cannot parse")
+            result[line[0]] += line[2]
+
+    if len(result[keys[0]]) != len(result[keys[1]]):
+        raise IOError("Sequence and structure of unequal length.")
+    if len(result[keys[0]]) == 0:
+        raise IOError("Input does not contain input sequence and structure.")
+
+    return [result[k] for k in keys]
+
+def read_molecule_from_file(filename):
+    try:
+        with open(filename,'r') as fh:
+            return read_molecule(fh.read())
+    except FileNotFoundError as e:
+        print("Input file not found.")
+        print(e)
+        sys.exit(-1)
+    except IOError as e:
+        print(f"Cannot read input file {filename}.")
+        print(e)
+        sys.exit(-1)
 
 def add_bialign_parameters(parser):
     parser.add_argument("seqA", help="sequence A")
@@ -68,6 +102,11 @@ def add_bialign_parameters(parser):
         default=2,
         help="Maximal number of shifts away from the diagonal in either direction",
     )
+    parser.add_argument(
+        "--fileinput",
+        action="store_true",
+        help="Read sequence and structure input from file",
+    )
 
     parser.add_argument("--version", action="version", version=VERSION_STRING)
 
@@ -91,6 +130,11 @@ def main():
         args.strA = args.strA[:L]
         args.seqB = args.seqB[:L]
         args.strB = args.strB[:L]
+
+    if args.fileinput:
+        args.seqA, args.strA = read_molecule_from_file(args.seqA)
+        args.seqB, args.strB = read_molecule_from_file(args.seqB)
+
 
     print(
         "\n".join(

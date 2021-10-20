@@ -432,7 +432,7 @@ cdef class BiAligner:
         lenA = self.molA["len"]
         lenB = self.molB["len"]
 
-        self._M = np.zeros((lenA + 1, lenB + 1, lenA + 1, lenB + 1), dtype=int)
+        self._M = SparseMatrix4D(lenA, lenB, max_shift)
 
         for i in range(0, lenA + 1):
             for j in range(0, lenB + 1):
