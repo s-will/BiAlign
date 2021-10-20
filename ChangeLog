@@ -1,3 +1,12 @@
+0.3a (Oct 20 2021)
+    * Implement efficient affine gap cost alignment
+	  with O(n^2 max_shift^2) time complexity, 9 states and 15 cases per state
+    * Preserve implementation of non-affine algorithm
+	  (it is automatically chosen for gap_opening_cost 0)
+    * Use sparse DP matrix O(n^2 max_shift^2)
+    * Support similarity matrix for protein comparison, include BLOSUM62
+    * Rewrite code for compilation with Cython and optimize due to static typing
+    * Support input from files
 0.2 (Feb 14 2020)
     corresponding to the LNBI-CIBB post-proceedings submission
     * add version option
