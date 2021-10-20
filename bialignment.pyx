@@ -9,7 +9,8 @@ from math import log, exp, sqrt
 
 __version__ = "0.3a"
 
-class SparseMatrix4D:
+
+cdef class SparseMatrix4D:
     """Sparse 4D matrix of integers
 
     Valid entries (i,j,k,l) satisfy
@@ -19,44 +20,136 @@ class SparseMatrix4D:
     * l in range(j-max_shift, j+max_shift+1)
     """
 
+    cdef int _n, _m, max_shift
+    cdef _M
+
     def __init__(self, n, m, max_shift):
-        self._n, self._m, self._max_shift = n, m, max_shift
+        self._n, self._m, self.max_shift = n, m, max_shift
         self._M = np.zeros(
             (
                 self._n + 1,
                 self._m + 1,
-                2 * self._max_shift + 1,
-                2 * self._max_shift + 1,
+                2 * self.max_shift + 1,
+                2 * self.max_shift + 1,
             ),
             dtype=int,
         )
 
     def __getitem__(self, k):
-        return self._M[k[0], k[1], k[2]-k[0]+self._max_shift, k[3]-k[1]+self._max_shift]
+        return self._M[k[0], k[1], k[2]-k[0]+self.max_shift, k[3]-k[1]+self.max_shift]
 
     def __setitem__(self, k, value):
-        self._M[k[0], k[1], k[2]-k[0]+self._max_shift, k[3]-k[1]+self._max_shift] = value
+        self._M[k[0], k[1], k[2]-k[0]+self.max_shift, k[3]-k[1]+self.max_shift] = value
 
 
-class AffineDPMatrices:
+cdef fourtuple_minus(int x[4], int y[4], int z[4]):
+    for i in range(4):
+      z[i] = x[i] - y[i]
+
+cdef int fourbits_to_int(int key[4]):
+    cdef int i
+    cdef int res = 0
+    for i in range(4):
+        res = res << 1
+        res += key[i]
+    return res
+
+cdef class AffineDPMatrices:
+    cdef _Ms
+    cdef _states
+
     def __init__(self, n, m, max_shift):
         self._states = [
             key
             for key in itertools.product(range(2), repeat=4)
             if (key[0] != 0 or key[1] != 0) and (key[2] != 0 or key[3] != 0)
         ]
-        self._Ms = {key: SparseMatrix4D(n, m, max_shift) for key in self._states}
+        self._Ms = [None]*16
+        cdef int ckey[4]
+        for key in self._states:
+            ckey = key
+            idx = fourbits_to_int(ckey)
+            self._Ms[idx] = SparseMatrix4D(n, m, max_shift)
 
     def __getitem__(self, key):
-        return self._Ms[key]
+        cdef int ckey[4]
+        ckey = key
+        idx = fourbits_to_int(ckey)
+        return self._Ms[idx]
 
     @property
     def states(self):
         return self._states
 
+## BiAligner affine cost
+cdef int affine_cost(int source_state[4], int x[4], int mu1, int mu2, int beta, int gamma, int Delta):
+        cdef int cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
+
+        cdef int a
+        cdef int b
+        cdef int mu
+
+        a, b, mu = (0, 1, mu1)
+        xa = x[a]
+        xb = x[b]
+        if xa and xb:  # match
+            cost += mu
+        elif xa and not xb:
+            cost += gamma
+            if not (source_state[a] == 1 and source_state[b] == 0):
+                cost += beta  # gap opening
+        elif not xa and xb:
+            cost += gamma
+            if not (source_state[a] == 0 and source_state[b] == 1):
+                cost += beta  # gap opening
+
+        a, b, mu = (2, 3, mu2)
+        xa = x[a]
+        xb = x[b]
+        if xa and xb:  # match
+            cost += mu
+        elif xa and not xb:
+            cost += gamma
+            if not (source_state[a] == 1 and source_state[b] == 0):
+                cost += beta  # gap opening
+        elif not xa and xb:
+            cost += gamma
+            if not (source_state[a] == 0 and source_state[b] == 1):
+                cost += beta  # gap opening
+
+        return cost
+
+cdef int cguard_case(int o[4], int x[4], int max_shift):
+    return (
+        x[0] - o[0] >= 0
+        and x[1] - o[1] >= 0
+        and x[2] - o[2] >= 0
+        and x[3] - o[3] >= 0
+        and abs(x[2] - o[2] - (x[0] - o[0])) <= max_shift
+        and abs(x[3] - o[3] - (x[1] - o[1])) <= max_shift
+    )
+
+def guard_case(o, x, int max_shift):
+    cdef int co[4]
+    co = o
+    cdef int cx[4]
+    cx = x
+    return cguard_case(co, cx, max_shift)
 
 ## Alignment factory
-class BiAligner:
+cdef class BiAligner:
+
+    cdef int beta
+    cdef int gamma
+    cdef int max_shift
+    cdef _params
+    cdef molA
+    cdef molB
+    cdef _M
+    cdef _simmatrix
+    cdef states
+    cdef int cstates[9][4]
+
     nl = 14
     outmodes = {
         "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
@@ -76,13 +169,13 @@ class BiAligner:
 
         self.gamma = self._params["gap_cost"]
         self.beta = self._params["gap_opening_cost"]
+        self.max_shift = self._params["max_shift"]
 
         if self._params["simmatrix"]:
             self._simmatrix = read_simmatrix(self._params["simmatrix"])
         else:
             self._simmatrix = None
 
-        self._max_shift = self._params["max_shift"]
 
         # the dynamic programming matrix
         self._M = None
@@ -113,9 +206,10 @@ class BiAligner:
     #       pair of access info
     #     and
     #       function that returns list of case score components
-    def recursion_cases(self, i, j, k, l):
+    def recursion_cases(self, idx):
         """recursion cases for non-affine alignment"""
-        mu1ij = self.mu1(i, j)
+        i, j, k, l = idx 
+        mu1ij = self.mu1(i, j) 
         mu2kl = self.mu2(k, l)
         Delta = self._params["shift_cost"]
 
@@ -141,63 +235,49 @@ class BiAligner:
         # yield ((0,1,1,0), self.gamma + self.gamma + 2 * self._params["shift_cost"])
         # yield ((1,0,0,1), self.gamma + self.gamma + 2 * self._params["shift_cost"])
 
+
     def affine_recursion_cases(self, state, idx):
         """yields recursion cases and their cost for affine gap cost"""
         i, j, k, l = idx
 
-        Delta = self._params["shift_cost"]
-        mu1 = self.mu1(i, j)
-        mu2 = self.mu2(k, l)
+        cdef int Delta = self._params["shift_cost"]
+        cdef int mu1 = self.mu1(i, j)
+        cdef int mu2 = self.mu2(k, l)
+        cdef int beta = self.beta
+        cdef int gamma = self.gamma
 
-        def cost(source_state, x):
-            cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
+        cdef int csource_state[4]
+        cdef int cstate[4]
+        cstate = state
+        cdef int cidx[4]
+        cidx = idx
 
-            a, b, mu = (0, 1, mu1)
-            xa = x[a]
-            xb = x[b]
-            if xa and xb:  # match
-                cost += mu
-            elif xa and not xb:
-                cost += self.gamma
-                if not (source_state[a] == 1 and source_state[b] == 0):
-                    cost += self.beta  # gap opening
-            elif not xa and xb:
-                cost += self.gamma
-                if not (source_state[a] == 0 and source_state[b] == 1):
-                    cost += self.beta  # gap opening
+        cdef int max_shift = self.max_shift
 
-            a, b, mu = (2, 3, mu2)
-            xa = x[a]
-            xb = x[b]
-            if xa and xb:  # match
-                cost += mu
-            elif xa and not xb:
-                cost += self.gamma
-                if not (source_state[a] == 1 and source_state[b] == 0):
-                    cost += self.beta  # gap opening
-            elif not xa and xb:
-                cost += self.gamma
-                if not (source_state[a] == 0 and source_state[b] == 1):
-                    cost += self.beta  # gap opening
+        cdef int ss
+    
+        if cguard_case(cstate, cidx, max_shift):
+            for ss in range(9):
+                csource_state = self.cstates[ss]
+                yield (csource_state, cstate, 
+                    affine_cost(csource_state, cstate, mu1, mu2, beta, gamma, Delta))
 
-            return cost
+        cdef int half_states[3][2]
+        half_states = [[1, 1], [1, 0], [0, 1]]
 
-        if self.guard_case(state, idx):
-            for source_state in self.states:
-                yield (source_state, state, cost(source_state, state))
-
-        half_states = [(1, 1), (1, 0), (0, 1)]
-
-        offset = (0, 0, state[2], state[3])
-        if self.guard_case(offset, idx):
-            for half_state in half_states:
-                target_state = (state[0], state[1], half_state[0], half_state[1])
-                yield (target_state, offset, cost(target_state, offset))
-        offset = (state[0], state[1], 0, 0)
-        if self.guard_case(offset, idx):
-            for half_state in half_states:
-                target_state = (half_state[0], half_state[1], state[2], state[3])
-                yield (target_state, offset, cost(target_state, offset))
+        cdef int offset[4]
+        offset = [0, 0, cstate[2], cstate[3]]
+        if cguard_case(offset, cidx, max_shift):
+            for hs in range(3):
+                csource_state = (cstate[0], cstate[1], half_states[hs][0], half_states[hs][1])
+                yield (csource_state, offset,
+                    affine_cost(csource_state, offset, mu1, mu2, beta, gamma, Delta))
+        offset = [cstate[0], cstate[1], 0, 0]
+        if cguard_case(offset, cidx, max_shift):
+            for hs in range(3):
+                csource_state = (half_states[hs][0], half_states[hs][1], cstate[2], cstate[3])
+                yield (csource_state, offset,
+                    affine_cost(csource_state, offset, mu1, mu2, beta, gamma, Delta))
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
@@ -210,27 +290,18 @@ class BiAligner:
     # def mul(self, xs):
     #    return sum(xs)
 
-    def guard_case(self, offset, idx):
-        (i, j, k, l) = idx
-        (io, jo, ko, lo) = offset
-        return (
-            i - io >= 0
-            and j - jo >= 0
-            and k - ko >= 0
-            and l - lo >= 0
-            and abs(k - ko - (i - io)) <= self._max_shift
-            and abs(l - lo - (j - jo)) <= self._max_shift
-        )
 
     def eval_case(self, x, idx):
         i, j, k, l = idx
         io, jo, ko, lo = x[0]
         return self._M[i - io, j - jo, k - ko, l - lo] + x[1]
 
-    def affine_eval_case(self, x, idx):
-        i, j, k, l = idx
-        io, jo, ko, lo = x[1]
-        return self._M[x[0]][i - io, j - jo, k - ko, l - lo] + x[2]
+    cdef int affine_eval_case(self, x, int idx[4]):
+        cdef int x1[4]
+        x1 = x[1]
+        cdef int y[4]
+        fourtuple_minus(idx, x1, y)
+        return self._M[x[0]][y] + x[2]
 
     # make bpp symmetric (based on upper triangular matrix)
     # and set diagonal to unpaired probs
@@ -356,6 +427,8 @@ class BiAligner:
         if self._affine:
             return self.affine_optimize()
 
+        cdef int max_shift = self.max_shift
+
         lenA = self.molA["len"]
         lenB = self.molB["len"]
 
@@ -364,11 +437,11 @@ class BiAligner:
         for i in range(0, lenA + 1):
             for j in range(0, lenB + 1):
                 for k in range(
-                    max(0, i - self._max_shift), min(lenA + 1, i + self._max_shift + 1)
+                    max(0, i - self.max_shift), min(lenA + 1, i + self.max_shift + 1)
                 ):
                     for l in range(
-                        max(0, j - self._max_shift),
-                        min(lenB + 1, j + self._max_shift + 1),
+                        max(0, j - self.max_shift),
+                        min(lenB + 1, j + self.max_shift + 1),
                     ):
                         idx = (i, j, k, l)
                         if idx == (0, 0, 0, 0):
@@ -376,39 +449,44 @@ class BiAligner:
                         self._M[idx] = self.plus(
                             self.eval_case(x, idx)
                             for x in self.recursion_cases(idx)
-                            if self.guard_case(x[0], idx)
+                            if guard_case(x[0], idx, max_shift)
                         )
         return self._M[lenA, lenB, lenA, lenB]
 
     # run affine alignment algorithm
     def affine_optimize(self):
-        lenA = self.molA["len"]
-        lenB = self.molB["len"]
+        cdef int lenA = self.molA["len"]
+        cdef int lenB = self.molB["len"]
 
-        self._M = AffineDPMatrices(lenA, lenB, self._max_shift)
+        self._M = AffineDPMatrices(lenA, lenB, self.max_shift)
         self.states = self._M.states
+        self.cstates = self.states
 
         # initialize - [0,0,0,0] is finite only if state is 'both match'
         for state in self.states:
             self._M[state][0, 0, 0, 0] = -1 << 30  # -infinity
         self._M[(1, 1, 1, 1)][0, 0, 0, 0] = 0
 
+        cdef int idx[4] 
+        cdef int i, j, k, l
+        cdef int s
+
         for i in range(0, lenA + 1):
             for j in range(0, lenB + 1):
                 for k in range(
-                    max(0, i - self._max_shift), min(lenA + 1, i + self._max_shift + 1)
+                    max(0, i - self.max_shift), min(lenA + 1, i + self.max_shift + 1)
                 ):
                     for l in range(
-                        max(0, j - self._max_shift),
-                        min(lenB + 1, j + self._max_shift + 1),
+                        max(0, j - self.max_shift),
+                        min(lenB + 1, j + self.max_shift + 1),
                     ):
-                        idx = (i, j, k, l)
-                        if idx == (0, 0, 0, 0):  # "initialization"
+                        idx = [i, j, k, l]
+                        if idx == [0, 0, 0, 0]:  # "initialization"
                             continue
-                        for state in self.states:
-                            self._M[state][idx] = self.plus(
+                        for s in range(9):# cstate in self.cstates:
+                            self._M[self.cstates[s]][idx] = self.plus(
                                 self.affine_eval_case(x, idx)
-                                for x in self.affine_recursion_cases(state, idx)
+                                for x in self.affine_recursion_cases(self.cstates[s], idx)
                             )
 
         return max(self._M[state][lenA, lenB, lenA, lenB] for state in self.states)
@@ -424,8 +502,8 @@ class BiAligner:
         trace = []
 
         def trace_from(i, j, k, l):
-            for x in self.recursion_cases(i, j, k, l):
-                if self.guard_case(x[0], (i, j, k, l)):
+            for x in self.recursion_cases((i, j, k, l)):
+                if guard_case(x[0], (i, j, k, l), self.max_shift):
                     if self.eval_case(x, (i, j, k, l)) == self._M[i, j, k, l]:
                         (io, jo, ko, lo) = x[0]
                         trace.append((io, jo, ko, lo))
@@ -444,15 +522,17 @@ class BiAligner:
         trace = []
 
         def trace_from(state, idx):
-            if idx == (0, 0, 0, 0) and state == (1, 1, 1, 1):
-                return True
             i, j, k, l = idx
+            cdef int cidx[4]
+            cidx = idx
+            if idx == [0, 0, 0, 0] and state == [1, 1, 1, 1]:
+                return True
             for x in self.affine_recursion_cases(state, idx):
-                if self.guard_case(x[1], idx):
-                    if self.affine_eval_case(x, idx) == self._M[state][idx]:
+                if guard_case(x[1], idx, self.max_shift):
+                    if self.affine_eval_case(x, cidx) == self._M[state][idx]:
                         (io, jo, ko, lo) = x[1]
-                        trace.append((io, jo, ko, lo))
-                        return trace_from(x[0], (i - io, j - jo, k - ko, l - lo))
+                        trace.append([io, jo, ko, lo])
+                        return trace_from(x[0], [i - io, j - jo, k - ko, l - lo])
             return False
 
         myidx = np.argmax(
@@ -460,7 +540,7 @@ class BiAligner:
         )
         best_state = self.states[myidx]
 
-        if not trace_from(best_state, (lenA, lenB, lenA, lenB)):
+        if not trace_from(best_state, [lenA, lenB, lenA, lenB]):
             print("WARNING: incomplete traceback. Alignment could be garbage.")
         return list(reversed(trace))
 
@@ -618,22 +698,22 @@ class BiAligner:
         if trace is None:
             trace = self.traceback()
 
-        pos = [0] * 4
+        idx = [0] * 4
         for i, y in enumerate(trace):
             for k in range(4):
-                pos[k] += y[k]
+                idx[k] += y[k]
             # lookup case
-            for x in self.recursion_cases(pos[0], pos[1], pos[2], pos[3]):
+            for x in self.recursion_cases(idx):
                 if x[0] == y:
                     line = " ".join(
                         [
                             str(x)
                             for x in [
-                                pos,
+                                idx,
                                 y,
                                 x[1],
                                 "-->",
-                                self.eval_case(x, (pos[0], pos[1], pos[2], pos[3])),
+                                self.eval_case(x, idx),
                             ]
                         ]
                     )
