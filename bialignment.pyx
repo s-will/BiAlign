@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
-import RNA
 
+from bialignment_nonpyx import *
 import itertools
 import sys
 import numpy as np
@@ -208,8 +208,8 @@ cdef class BiAligner:
     #       function that returns list of case score components
     def recursion_cases(self, idx):
         """recursion cases for non-affine alignment"""
-        i, j, k, l = idx 
-        mu1ij = self.mu1(i, j) 
+        i, j, k, l = idx
+        mu1ij = self.mu1(i, j)
         mu2kl = self.mu2(k, l)
         Delta = self._params["shift_cost"]
 
@@ -255,11 +255,11 @@ cdef class BiAligner:
         cdef int max_shift = self.max_shift
 
         cdef int ss
-    
+
         if cguard_case(cstate, cidx, max_shift):
             for ss in range(9):
                 csource_state = self.cstates[ss]
-                yield (csource_state, cstate, 
+                yield (csource_state, cstate,
                     affine_cost(csource_state, cstate, mu1, mu2, beta, gamma, Delta))
 
         cdef int half_states[3][2]
@@ -328,6 +328,7 @@ cdef class BiAligner:
 
         if structure is None:
             if self._is_rna:
+                import RNA
                 fc = RNA.fold_compound(str(sequence))
                 x["mfe"] = fc.mfe()
                 x["pf"] = fc.pf()
@@ -406,7 +407,7 @@ cdef class BiAligner:
             )
         else:
             if self.molA["structure"][i - 1] == self.molB["structure"][j - 1]:
-                sim = 100
+                sim = self._params["structure_weight"]
             else:
                 sim = 0
         return sim
@@ -467,7 +468,7 @@ cdef class BiAligner:
             self._M[state][0, 0, 0, 0] = -1 << 30  # -infinity
         self._M[(1, 1, 1, 1)][0, 0, 0, 0] = 0
 
-        cdef int idx[4] 
+        cdef int idx[4]
         cdef int i, j, k, l
         cdef int s
 
@@ -589,7 +590,7 @@ cdef class BiAligner:
         return x
 
     # decode trace to alignment strings
-    def decode_trace(self, *, trace=None):
+    def decode_trace_full(self, trace=None):
         if trace is None:
             trace = self.traceback()
 
@@ -663,14 +664,22 @@ cdef class BiAligner:
             nameB + " shifts",
         ]
 
-        width = max(map(len, names)) + 4
+        return list(zip(names, alignment))
+
+    def decode_trace(self, trace=None):
+
+        alignment = self.decode_trace_full(trace)
+
+        width = max(map(lambda x: len(x[0]), alignment)) + 4
 
         # add names of single lines
         if not self._params["nodescription"]:
             alignment = [
                 ("{:{width}}{}").format(name, alistr, width=width)
-                for alistr, name in zip(alignment, names)
+                for name, alistr in alignment
             ]
+        else:
+            alignment = [ alistr for _,alistr in alignment ]
 
         alignment.append("")
 
@@ -687,9 +696,6 @@ cdef class BiAligner:
 
         # re-sort
         alignment = [alignment[i] for i in order]
-
-        # re-sort, terse
-        # alignment = [alignment[i] for i in ]
 
         return alignment
 
@@ -878,74 +884,3 @@ def highlight_structure_similarity(alistrA, alistrB, *, sbppA, sbppB):
 
     return ["".join(x) for x in res]
 
-
-def bialign(seqA, seqB, strA, strB, verbose, **args):
-    ba = BiAligner(seqA, seqB, strA, strB, **args)
-
-    optscore = ba.optimize()
-    yield "SCORE: " + str(optscore)
-    yield ""
-
-    ali = ba.decode_trace()
-
-    yield from ali
-
-    if verbose:
-        yield from ba.eval_trace()
-
-
-
-blosum62 = """-  A  R  N  D  C  Q  E  G  H  I  L  K  M  F  P  S  T  W  Y  V  B  Z  X  *
-A  4 -1 -2 -2  0 -1 -1  0 -2 -1 -1 -1 -1 -2 -1  1  0 -3 -2  0 -2 -1  0 -4
-R -1  5  0 -2 -3  1  0 -2  0 -3 -2  2 -1 -3 -2 -1 -1 -3 -2 -3 -1  0 -1 -4
-N -2  0  6  1 -3  0  0  0  1 -3 -3  0 -2 -3 -2  1  0 -4 -2 -3  3  0 -1 -4
-D -2 -2  1  6 -3  0  2 -1 -1 -3 -4 -1 -3 -3 -1  0 -1 -4 -3 -3  4  1 -1 -4
-C  0 -3 -3 -3  9 -3 -4 -3 -3 -1 -1 -3 -1 -2 -3 -1 -1 -2 -2 -1 -3 -3 -2 -4
-Q -1  1  0  0 -3  5  2 -2  0 -3 -2  1  0 -3 -1  0 -1 -2 -1 -2  0  3 -1 -4
-E -1  0  0  2 -4  2  5 -2  0 -3 -3  1 -2 -3 -1  0 -1 -3 -2 -2  1  4 -1 -4
-G  0 -2  0 -1 -3 -2 -2  6 -2 -4 -4 -2 -3 -3 -2  0 -2 -2 -3 -3 -1 -2 -1 -4
-H -2  0  1 -1 -3  0  0 -2  8 -3 -3 -1 -2 -1 -2 -1 -2 -2  2 -3  0  0 -1 -4
-I -1 -3 -3 -3 -1 -3 -3 -4 -3  4  2 -3  1  0 -3 -2 -1 -3 -1  3 -3 -3 -1 -4
-L -1 -2 -3 -4 -1 -2 -3 -4 -3  2  4 -2  2  0 -3 -2 -1 -2 -1  1 -4 -3 -1 -4
-K -1  2  0 -1 -3  1  1 -2 -1 -3 -2  5 -1 -3 -1  0 -1 -3 -2 -2  0  1 -1 -4
-M -1 -1 -2 -3 -1  0 -2 -3 -2  1  2 -1  5  0 -2 -1 -1 -1 -1  1 -3 -1 -1 -4
-F -2 -3 -3 -3 -2 -3 -3 -3 -1  0  0 -3  0  6 -4 -2 -2  1  3 -1 -3 -3 -1 -4
-P -1 -2 -2 -1 -3 -1 -1 -2 -2 -3 -3 -1 -2 -4  7 -1 -1 -4 -3 -2 -2 -1 -2 -4
-S  1 -1  1  0 -1  0  0  0 -1 -2 -2  0 -1 -2 -1  4  1 -3 -2 -2  0  0  0 -4
-T  0 -1  0 -1 -1 -1 -1 -2 -2 -1 -1 -1 -1 -2 -1  1  5 -2 -2  0 -1 -1  0 -4
-W -3 -3 -4 -4 -2 -2 -3 -2 -2 -3 -2 -3 -1  1 -4 -3 -2 11  2 -3 -4 -3 -2 -4
-Y -2 -2 -2 -3 -2 -1 -2 -3  2 -1 -1 -2 -1  3 -3 -2 -2  2  7 -1 -3 -2 -1 -4
-V  0 -3 -3 -3 -1 -2 -2 -3 -3  3  1 -2  1 -1 -2 -2  0 -3 -1  4 -3 -2 -1 -4
-B -2 -1  3  4 -3  0  1 -1  0 -3 -4  0 -3 -3 -2  0 -1 -4 -3 -3  4  1 -1 -4
-Z -1  0  0  1 -3  3  4 -2  0 -3 -3  1 -1 -3 -1  0 -1 -3 -2 -2  1  4 -1 -4
-X  0 -1 -1 -1 -2 -1 -1 -1 -1 -1 -1 -1 -1 -1 -2  0  0 -2 -1 -1 -1 -1 -1 -4
-* -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4 -4  1
-"""
-
-
-def read_simmatrix(filename, scale=100):
-    if filename == "BLOSUM62":
-        lines = blosum62.split("\n")
-    else:
-        with open(filename, "r") as fh:
-            lines = fh.readlines()
-
-    keys = None
-    keys2 = []
-    matrix = dict()
-
-    for i, line in enumerate(lines):
-        if keys and i > len(keys):
-            break
-        line = line.split()
-        if line[0] == "-":
-            keys = line[1:]
-        else:
-            keys2.append(line[0])
-            matrix[line[0]] = {
-                key: (scale * int(val)) for key, val in zip(keys, line[1:])
-            }
-
-    if not keys == keys2:
-        print("ERROR while reading simmatrix {filename}.")
-    return matrix
