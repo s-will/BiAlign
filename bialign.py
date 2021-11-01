@@ -101,34 +101,19 @@ def main():
 
     args = parser.parse_args()
 
-    if args.seqA == "example":
-        args.seqA = "MSKLVLIDGSSYLYRAFHALPPLTNAQGEPTGALFGVVNMLRATLKERPAYVAFVVDAPGKTFRDDLYADYKANRPSMPDELRAQVQPMCDIVHALGIDILRIDGVEADD"
-        args.strA = "HEEEEEHCTTCEEEEHHCCCCCCCCCCTTCCCHEEEEEHHHHHHHHHTTHEEEEEHHCCTTCCCTCCCCCCCCCTTCCCHHHHEEEEHEEEEEHEEEEEEEHHHHHHHHH"
-        args.seqB = "MVQIPQNPLILVDGSSYLYRAYHAFPPLTNSAGEPTGAMYGVLNMLRSLIMQYKPTHAAVVFDAKGKTFRDELFEHYKSHRPPMPDDLRAQIEPLHAMVKAMGLPLLAVS"
-        args.strB = "EEEEETEEEEEHCTTCEEEEEECCCCCCCTCCCTCCCHEEEEEHHEEEEEHEHCTCHHHHHHHHHTHHHHHHHHHHHHTCCTCCCTHHHHHHHHHHHHHHHHEEHEEEEH"
-
-        L = 60
-        args.seqA = args.seqA[:L]
-        args.strA = args.strA[:L]
-        args.seqB = args.seqB[:L]
-        args.strB = args.strB[:L]
-
     if args.fileinput:
         args.seqA, args.strA = bialignment.read_molecule_from_file(args.seqA)
         args.seqB, args.strB = bialignment.read_molecule_from_file(args.seqB)
 
-    print(
-        "\n".join(
-            [
-                "Input:",
+    input_descr=["Input:",
                 "seqA\t " + args.seqA,
-                "seqB\t " + args.seqB,
-                "strA\t " + args.strA,
-                "strB\t " + args.strB,
-                "",
-            ]
-        )
-    )
+                "seqB\t " + args.seqB]
+    if hasattr(args,"strA") and args.strA is not None:
+        input_descr.append("strA\t " + args.strA)
+    if hasattr(args,"strB") and args.strB is not None:
+        input_descr.append("strB\t " + args.strA)
+
+    print("\n".join(input_descr))
 
     if args.outmode == "help":
         print()
