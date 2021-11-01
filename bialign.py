@@ -1,43 +1,25 @@
 #!/usr/bin/env python3
 import argparse
 
-import bialignment as ba
+import bialignment
 import sys
-from collections import defaultdict
 
-VERSION_STRING = f"BiAlign {ba.__version__}"
+VERSION_STRING = f"BiAlign {bialignment.__version__}"
 
-def read_molecule(content):
-    result = defaultdict(lambda:"")
-    keys =["Query","Struc"]
-    for line in content.split('\n'):
-        line = line.split()
-        if not line:
-            continue
-        if line[0] in keys:
-            if len(line) != 4:
-                raise IOError("Cannot parse")
-            result[line[0]] += line[2]
+def bialign(seqA, seqB, strA, strB, verbose, **args):
+    ba = bialignment.BiAligner(seqA, seqB, strA, strB, **args)
 
-    if len(result[keys[0]]) != len(result[keys[1]]):
-        raise IOError("Sequence and structure of unequal length.")
-    if len(result[keys[0]]) == 0:
-        raise IOError("Input does not contain input sequence and structure.")
+    optscore = ba.optimize()
+    yield "SCORE: " + str(optscore)
+    yield ""
 
-    return [result[k] for k in keys]
+    ali = ba.decode_trace()
 
-def read_molecule_from_file(filename):
-    try:
-        with open(filename,'r') as fh:
-            return read_molecule(fh.read())
-    except FileNotFoundError as e:
-        print("Input file not found.")
-        print(e)
-        sys.exit(-1)
-    except IOError as e:
-        print(f"Cannot read input file {filename}.")
-        print(e)
-        sys.exit(-1)
+    yield from ali
+
+    if verbose:
+        yield from ba.eval_trace()
+
 
 def add_bialign_parameters(parser):
     parser.add_argument("seqA", help="sequence A")
@@ -132,9 +114,8 @@ def main():
         args.strB = args.strB[:L]
 
     if args.fileinput:
-        args.seqA, args.strA = read_molecule_from_file(args.seqA)
-        args.seqB, args.strB = read_molecule_from_file(args.seqB)
-
+        args.seqA, args.strA = bialignment.read_molecule_from_file(args.seqA)
+        args.seqB, args.strB = bialignment.read_molecule_from_file(args.seqB)
 
     print(
         "\n".join(
@@ -151,14 +132,13 @@ def main():
 
     if args.outmode == "help":
         print()
-        print("Available modes: " + ", ".join(BiAligner.outmodes.keys()))
+        print("Available modes: " + ", ".join(bialignment.BiAligner.outmodes.keys()))
         print()
         exit()
 
-    for line in ba.bialign(**vars(args)):
+    for line in bialign(**vars(args)):
         print(line)
 
 
 if __name__ == "__main__":
     main()
-
