@@ -56,7 +56,10 @@ def read_simmatrix(filename, scale=100):
     return matrix
 
 
-def read_molecule(content):
+def read_molecule(content, type):
+    if type!="Protein":
+        raise IOError(f"Cannot read files of type {type}")
+
     result = defaultdict(lambda: "")
     keys = ["Query", "Struc"]
     for line in content.split("\n"):
@@ -76,10 +79,10 @@ def read_molecule(content):
     return [result[k] for k in keys]
 
 
-def read_molecule_from_file(filename):
+def read_molecule_from_file(filename, type):
     try:
         with open(filename, "r") as fh:
-            return read_molecule(fh.read())
+            return read_molecule(fh.read(), type)
     except FileNotFoundError as e:
         print("Input file not found.")
         print(e)

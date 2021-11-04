@@ -60,7 +60,7 @@ def add_bialign_parameters(parser):
     parser.add_argument(
         "--structure_weight",
         type=int,
-        default=100,
+        default=400,
         help="Weighting factor for structure similarity",
     )
     parser.add_argument(
@@ -102,8 +102,8 @@ def main():
     args = parser.parse_args()
 
     if args.fileinput:
-        args.seqA, args.strA = bialignment.read_molecule_from_file(args.seqA)
-        args.seqB, args.strB = bialignment.read_molecule_from_file(args.seqB)
+        args.seqA, args.strA = bialignment.read_molecule_from_file(args.seqA, args.type)
+        args.seqB, args.strB = bialignment.read_molecule_from_file(args.seqB, args.type)
 
     input_descr=["Input:",
                 "seqA\t " + args.seqA,
@@ -111,7 +111,7 @@ def main():
     if hasattr(args,"strA") and args.strA is not None:
         input_descr.append("strA\t " + args.strA)
     if hasattr(args,"strB") and args.strB is not None:
-        input_descr.append("strB\t " + args.strA)
+        input_descr.append("strB\t " + args.strB)
 
     print("\n".join(input_descr))
 
