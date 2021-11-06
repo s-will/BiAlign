@@ -81,43 +81,55 @@ cdef class AffineDPMatrices:
     def states(self):
         return self._states
 
-## BiAligner affine cost
-cdef int affine_cost(int source_state[4], int x[4], int mu1, int mu2, int beta, int gamma, int Delta):
-        cdef int cost = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
+## BiAligner affine score
+cdef int affine_score(int source_state[4], int x[4], int mu1, int mu2, int beta, int gamma, int Delta):
+    """
+    Score of one alignment column in the affine case
+    @param source_state state of prefix alignment without new column
+    @param x new column as 0,1 vector (0=gap, 1=non-gap)
+    @param mu1 similarity in case of seq match    
+    @param mu2 similarity in case of str match
+    @param beta gap opening
+    @param gamma gap extension
+    @param Delta shift cost
+    
+    @return score
+    """
+    cdef int score = Delta * (abs(x[0] - x[2]) + abs(x[1] - x[3]))
 
-        cdef int a
-        cdef int b
-        cdef int mu
+    cdef int a
+    cdef int b
+    cdef int mu
 
-        a, b, mu = (0, 1, mu1)
-        xa = x[a]
-        xb = x[b]
-        if xa and xb:  # match
-            cost += mu
-        elif xa and not xb:
-            cost += gamma
-            if not (source_state[a] == 1 and source_state[b] == 0):
-                cost += beta  # gap opening
-        elif not xa and xb:
-            cost += gamma
-            if not (source_state[a] == 0 and source_state[b] == 1):
-                cost += beta  # gap opening
+    a, b, mu = (0, 1, mu1)
+    xa = x[a]
+    xb = x[b]
+    if xa and xb:  # match
+        score += mu
+    elif xa and not xb:
+        score += gamma
+        if not (source_state[a] == 1 and source_state[b] == 0):
+            score += beta  # gap opening
+    elif not xa and xb:
+        score += gamma
+        if not (source_state[a] == 0 and source_state[b] == 1):
+            score += beta  # gap opening
 
-        a, b, mu = (2, 3, mu2)
-        xa = x[a]
-        xb = x[b]
-        if xa and xb:  # match
-            cost += mu
-        elif xa and not xb:
-            cost += gamma
-            if not (source_state[a] == 1 and source_state[b] == 0):
-                cost += beta  # gap opening
-        elif not xa and xb:
-            cost += gamma
-            if not (source_state[a] == 0 and source_state[b] == 1):
-                cost += beta  # gap opening
+    a, b, mu = (2, 3, mu2)
+    xa = x[a]
+    xb = x[b]
+    if xa and xb:  # match
+        score += mu
+    elif xa and not xb:
+        score += gamma
+        if not (source_state[a] == 1 and source_state[b] == 0):
+            score += beta  # gap opening
+    elif not xa and xb:
+        score += gamma
+        if not (source_state[a] == 0 and source_state[b] == 1):
+            score += beta  # gap opening
 
-        return cost
+    return score
 
 cdef int cguard_case(int o[4], int x[4], int max_shift):
     return (
@@ -135,6 +147,10 @@ def guard_case(o, x, int max_shift):
     cdef int cx[4]
     cx = x
     return cguard_case(co, cx, max_shift)
+
+
+def argmin(xs):
+    return min(enumerate(xs), key=lambda x:x[1])[0]
 
 ## Alignment factory
 cdef class BiAligner:
@@ -237,7 +253,7 @@ cdef class BiAligner:
 
 
     def affine_recursion_cases(self, state, idx):
-        """yields recursion cases and their cost for affine gap cost"""
+        """yields recursion cases and their score for affine gap cost"""
         i, j, k, l = idx
 
         cdef int Delta = self._params["shift_cost"]
@@ -260,7 +276,7 @@ cdef class BiAligner:
             for ss in range(9):
                 csource_state = self.cstates[ss]
                 yield (csource_state, cstate,
-                    affine_cost(csource_state, cstate, mu1, mu2, beta, gamma, Delta))
+                    affine_score(csource_state, cstate, mu1, mu2, beta, gamma, Delta))
 
         cdef int half_states[3][2]
         half_states = [[1, 1], [1, 0], [0, 1]]
@@ -271,13 +287,13 @@ cdef class BiAligner:
             for hs in range(3):
                 csource_state = (cstate[0], cstate[1], half_states[hs][0], half_states[hs][1])
                 yield (csource_state, offset,
-                    affine_cost(csource_state, offset, mu1, mu2, beta, gamma, Delta))
+                    affine_score(csource_state, offset, mu1, mu2, beta, gamma, Delta))
         offset = [cstate[0], cstate[1], 0, 0]
         if cguard_case(offset, cidx, max_shift):
             for hs in range(3):
                 csource_state = (half_states[hs][0], half_states[hs][1], cstate[2], cstate[3])
                 yield (csource_state, offset,
-                    affine_cost(csource_state, offset, mu1, mu2, beta, gamma, Delta))
+                    affine_score(csource_state, offset, mu1, mu2, beta, gamma, Delta))
 
     # plus operator (max in optimization; sum in pf)
     def plus(self, xs):
@@ -415,11 +431,11 @@ cdef class BiAligner:
     # Scoring functions
     # note: scoring functions have 1-based indices
 
-    # match/mismatch cost for i~j, score 1
+    # match/mismatch score for i~j, score 1
     def mu1(self, i, j):
         return self._sequence_similarity(i, j)
 
-    # match/mismatch cost for i~j, score 2
+    # match/mismatch score for i~j, score 2
     def mu2(self, i, j):
         return self._structure_similarity(i, j)
 
@@ -522,26 +538,50 @@ cdef class BiAligner:
 
         trace = []
 
-        def trace_from(state, idx):
+        def shift_by(x, total_shift):
+            total_shift[0] += x[0] - x[2]
+            total_shift[1] += x[1] - x[3]
+            total_shift[2] = abs(total_shift[0]) + abs(total_shift[1])
+            return total_shift
+
+        def trace_from(state, idx, total_shift):
             i, j, k, l = idx
             cdef int cidx[4]
             cidx = idx
             if idx == [0, 0, 0, 0] and state == [1, 1, 1, 1]:
                 return True
+            
+            candidates = list()
             for x in self.affine_recursion_cases(state, idx):
                 if guard_case(x[1], idx, self.max_shift):
                     if self.affine_eval_case(x, cidx) == self._M[state][idx]:
-                        (io, jo, ko, lo) = x[1]
-                        trace.append([io, jo, ko, lo])
-                        return trace_from(x[0], [i - io, j - jo, k - ko, l - lo])
-            return False
+                        temp_total_shift = total_shift[:]
+                        shift_by(x[1], temp_total_shift)
+                        shift_by(x[0], temp_total_shift)
+                        candidates.append([x,temp_total_shift])
 
-        myidx = np.argmax(
-            [self._M[state][lenA, lenB, lenA, lenB] for state in self.states]
+            if candidates:
+                sel = argmin([[shift[2],abs(shift[1])] for x,shift in candidates])
+                x, temp_total_shift = candidates[sel]
+                shift_by(x[1], total_shift)
+                (io, jo, ko, lo) = x[1]
+                trace.append(x[1])
+                return trace_from(x[0], [i - io, j - jo, k - ko, l - lo], total_shift)
+            else:    
+                return False
+
+        best_score = np.max(
+            [ self._M[state][lenA, lenB, lenA, lenB] for state in self.states]
         )
-        best_state = self.states[myidx]
+        best_states =[ state for state in self.states 
+            if self._M[state][lenA, lenB, lenA, lenB] == best_score ] 
 
-        if not trace_from(best_state, [lenA, lenB, lenA, lenB]):
+        # select the start state that causes the least number of shifts
+        best_state_shifts = [[shift_by(x,[0,0,0])[2]] for x in best_states]
+        sel = np.argmin(best_state_shifts)
+        best_state = best_states[sel]
+
+        if not trace_from(best_state, [lenA, lenB, lenA, lenB], [0,0,0]):
             print("WARNING: incomplete traceback. Alignment could be garbage.")
         return list(reversed(trace))
 
@@ -699,10 +739,72 @@ cdef class BiAligner:
 
         return alignment
 
-    # evaluate trace
-    def eval_trace(self, trace=None):
+    def eval_affine_trace(self, trace = None):
+        cdef int cy[4]
+        cdef int cstate[4]
+
         if trace is None:
             trace = self.traceback()
+
+        def update_state(x,y):
+            y = y[:]
+            if y[0]==0 and y[1]==0:
+                y[0] = x[0]
+                y[1] = x[1]
+            if y[2]==0 and y[3]==0:
+                y[2] = x[2]
+                y[3] = x[3]
+            return y
+
+        total_score = 0
+
+        beta = self.beta
+        gamma = self.gamma
+        Delta = self._params["shift_cost"]
+
+        state=[1,1,1,1]
+        idx = [0] * 4
+        for i, y in enumerate(trace):
+            for k in range(4):
+                idx[k] += y[k] # <- compute new indices
+
+            i, j, k, l = idx
+
+            mu1 = self.mu1(i, j)
+            mu2 = self.mu2(k, l)
+
+            cy = y
+            cstate = state
+
+            score = affine_score(cstate, cy, mu1, mu2, beta, gamma, Delta)
+            total_score += score
+
+            state = update_state(state,y)
+            
+            line = " ".join(
+                [
+                    str(item)
+                    for item in [
+                        idx,
+                        y,
+                        score,
+                        "-->",
+                        total_score,
+                        #self._M[state][idx] 
+                    ]
+                ]
+            )
+            yield line
+
+    # evaluate trace
+    def eval_trace(self, trace = None):
+        if self._affine:
+            yield from self.eval_affine_trace(trace)
+            return
+
+        if trace is None:
+            trace = self.traceback()
+
 
         idx = [0] * 4
         for i, y in enumerate(trace):
@@ -713,8 +815,8 @@ cdef class BiAligner:
                 if x[0] == y:
                     line = " ".join(
                         [
-                            str(x)
-                            for x in [
+                            str(item)
+                            for item in [
                                 idx,
                                 y,
                                 x[1],
