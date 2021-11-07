@@ -236,9 +236,14 @@ def plot_alignment(
         ax.text(-name_offset, y, name)
         for x, ch in enumerate(seq):
             weight = "normal"
-            if other is not None and ch == other[x]:
-                weight = "bold"
-            ax.text(x, y, ch, weight=weight)
+            color = 'black'
+            if other is not None:
+                if ch!='-' and other[x] != '-':
+                    color = 'darkred'
+                if ch == other[x]:
+                    weight = "bold"
+                    color = 'black'
+            ax.text(x, y, ch, weight = weight, color = color)
 
     def draw_shifts(ax, aa, bb):
         for x, (a, b) in enumerate(zip(aa, bb)):
@@ -264,9 +269,9 @@ def plot_alignment(
         #    print(f"{i:2} {name:12} {aliline}")
         # print()
 
-        length = len(block[1][1])
-        length_a = len(block[1][1].replace("-", ""))
-        length_b = len(block[3][1].replace("-", ""))
+        length = len(block[0][1])
+        length_a = len(block[0][1].replace("-", ""))
+        length_b = len(block[1][1].replace("-", ""))
 
         ## print sequence positions
         if show_position_numbers:
