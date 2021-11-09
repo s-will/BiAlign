@@ -146,7 +146,7 @@ def plot_alignment(
     show_structure_strings=False,
     name_offset=12,
     show_position_numbers=True,
-    outname="mybialignment.svg",
+    outname=None
 ):
 
     import matplotlib.pyplot as plt

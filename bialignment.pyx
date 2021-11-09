@@ -168,6 +168,7 @@ cdef class BiAligner:
 
     nl = 14
     outmodes = {
+        "default": [1,3,6,8,12,13],
         "sorted": [0, 1, 5, 3, 2, 4, nl] + [7, 6, 10, 8, 9, 11, nl] + [12, 13],
         "sorted_sym": [0, 1, 3, 2, 5, 4, nl] + [6, 7, 9, 8, 11, 10, nl] + [12, 13],
         "sorted_terse": [1, 5, 3, 4, nl] + [6, 10, 8, 11, nl] + [12, 13],
@@ -713,7 +714,7 @@ cdef class BiAligner:
         width = max(map(lambda x: len(x[0]), alignment)) + 4
 
         # add names of single lines
-        if not self._params["nodescription"]:
+        if "nodescription" not in self._params or not self._params["nodescription"]:
             alignment = [
                 ("{:{width}}{}").format(name, alistr, width=width)
                 for name, alistr in alignment
@@ -722,6 +723,9 @@ cdef class BiAligner:
             alignment = [ alistr for _,alistr in alignment ]
 
         alignment.append("")
+
+        if not "outmode" in self._params:
+            self._params["outmode"] = "default"
 
         mode = self.auto_complete(self._params["outmode"], self.outmodes.keys())
 
