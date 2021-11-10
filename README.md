@@ -1,6 +1,8 @@
-# BiAlign - Bialignment of RNAs and proteins.
+# BiAlign - Bialignment of RNAs and proteins
 
 This type of alignment supports evolutionary 'shift' events that allow some incongruence between sequence and structure evolution.
+
+![](Examples/example.svg)
 
 The first version of this tool has been described in 
 
