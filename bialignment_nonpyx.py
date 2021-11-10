@@ -57,7 +57,7 @@ def read_simmatrix(filename, scale=100):
 
 
 def read_molecule(content, type):
-    if type!="Protein":
+    if type != "Protein":
         raise IOError(f"Cannot read files of type {type}")
 
     result = defaultdict(lambda: "")
@@ -146,7 +146,7 @@ def plot_alignment(
     show_structure_strings=False,
     name_offset=12,
     show_position_numbers=True,
-    outname=None
+    outname=None,
 ):
 
     import matplotlib.pyplot as plt
@@ -236,14 +236,14 @@ def plot_alignment(
         ax.text(-name_offset, y, name)
         for x, ch in enumerate(seq):
             weight = "normal"
-            color = 'black'
+            color = "black"
             if other is not None:
-                if ch!='-' and other[x] != '-':
-                    color = 'darkred'
+                if ch != "-" and other[x] != "-":
+                    color = "darkred"
                 if ch == other[x]:
                     weight = "bold"
-                    color = 'black'
-            ax.text(x, y, ch, weight = weight, color = color)
+                    color = "black"
+            ax.text(x, y, ch, weight=weight, color=color)
 
     def draw_shifts(ax, aa, bb):
         for x, (a, b) in enumerate(zip(aa, bb)):

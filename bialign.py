@@ -6,6 +6,7 @@ import sys
 
 VERSION_STRING = f"BiAlign {bialignment.__version__}"
 
+
 def bialign(seqA, seqB, strA, strB, verbose, **args):
     ba = bialignment.BiAligner(seqA, seqB, strA, strB, **args)
 
@@ -105,12 +106,10 @@ def main():
         args.seqA, args.strA = bialignment.read_molecule_from_file(args.seqA, args.type)
         args.seqB, args.strB = bialignment.read_molecule_from_file(args.seqB, args.type)
 
-    input_descr=["Input:",
-                "seqA\t " + args.seqA,
-                "seqB\t " + args.seqB]
-    if hasattr(args,"strA") and args.strA is not None:
+    input_descr = ["Input:", "seqA\t " + args.seqA, "seqB\t " + args.seqB]
+    if hasattr(args, "strA") and args.strA is not None:
         input_descr.append("strA\t " + args.strA)
-    if hasattr(args,"strB") and args.strB is not None:
+    if hasattr(args, "strB") and args.strB is not None:
         input_descr.append("strB\t " + args.strB)
 
     print("\n".join(input_descr))
