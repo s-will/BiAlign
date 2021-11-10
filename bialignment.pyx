@@ -7,7 +7,7 @@ import sys
 import numpy as np
 from math import log, exp, sqrt
 
-__version__ = "0.3a"
+__version__ = "0.3b"
 
 
 cdef class SparseMatrix4D:
