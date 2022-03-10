@@ -1,6 +1,14 @@
 # BiAlign - Bialignment of RNAs and proteins
 
-This type of alignment supports evolutionary 'shift' events that allow some incongruence between sequence and structure evolution.
+The tool BiAlign computes optimal bi-alignments of RNAs and proteins. Such
+bi-alignments support evolutionary 'shift' events between sequence and
+structure. In this way, bialignments extend alignments based on sequence
+and struture similarity to the case of potential incongruence between
+sequence and structure evolution.
+
+The current version extends the capabilities from RNA alignments to the alignment of protein
+sequence and secondary structure, supporting realistic 'affine' gap cost
+with gap opening and extension scores.
 
 ![](Examples/example.svg)
 
@@ -14,13 +22,40 @@ Biostatistics. CIBB 2019. Lecture Notes in Computer Science, vol 12313.
 Springer, Cham. https://doi.org/10.1007/978-3-030-63061-4_15
 
 
-## Setup and usage
 
-The software requires compilation by Cython. For this purpose Cython and
-Python need to be installed and the tool has to be compiled by
+## Installation
+
+This software will run with full functionality only on Linux and Mac
+systems. Installation via conda is not supported on Windows
+and the prediction of RNA structures (using the Vienna RNA package) cannot be
+supported.
+
+The software can be installed via Conda (only Linux/Mac) or pip (Mac/Linux/Windows/...)  respectively by
 
 ```
-python setup.py build_ext --inplace
+conda install -c bioconda bialign
+```
+
+or
+
+```
+pip install bialign
+```
+
+
+Conda installation is recommended, since it will automatically install dependencies like the Vienna RNA
+package. When installing via pip (or from source, see below), additionally install numpy, matplotlib, and (optionally) the Vienna RNA package.
+
+
+### Installation from source
+Installation or from source, e.g. a clone of the git repository, relies on
+the python setup system.
+
+We require Cython to compile performance critical code. For this purpose Cython and
+Python (including pip/setuptools) need to be installed. Install from source by
+
+```
+pip install .
 ```
 
 Moreover, for aligning RNAs, the tool requires the Vienna RNA package with Python bindings. We recommend to use the tool under Linux or MacOS and install the prerequisites via conda / bioconda.
@@ -29,13 +64,14 @@ Moreover, for aligning RNAs, the tool requires the Vienna RNA package with Pytho
 
 The tool can be used from the command line or via its Python interface
 (e.g. from a Jupyter notebook).
+
 ### Command line interface
 
 To get an overview on all command line parameters that configure modes and
 alignment parameters, please refer to the help output of the tool as obtained by
 
 ```
-./bialign.py --help
+bialign.py --help
 ```
 
 #### RNA bi-alignment examples
@@ -43,7 +79,7 @@ alignment parameters, please refer to the help output of the tool as obtained by
 This 'toy' example demonstrates a simple helix shift;
 
 ```bash
-./bialign.py GCGGGGGAUAUCCCCAUCG GGGGAUAUCCCCAUCG \
+bialign.py GCGGGGGAUAUCCCCAUCG GGGGAUAUCCCCAUCG \
     --strA "...(((.....)))....." --strB ".(((.....)))...." \
     --structure 400 \
     --gap_opening_cost -200 --gap_cost -50 \
@@ -53,7 +89,7 @@ This 'toy' example demonstrates a simple helix shift;
 Structures will be predicted (using the Vienna RNA package) if they are not
 explicitly given, e.g.
 ```
-./bialign.py UGUAAACAUCCUCGACUGGAAGCUGUGAAGCCACAAAUGGGCUUUCAGUCGGAUGUUUGCA UGUAAACAUCCUACACUCAGCUGUCAUACAUGCGUUGGCUGGGAUGUGGAUGUUUACG 
+bialign.py UGUAAACAUCCUCGACUGGAAGCUGUGAAGCCACAAAUGGGCUUUCAGUCGGAUGUUUGCA UGUAAACAUCCUACACUCAGCUGUCAUACAUGCGUUGGCUGGGAUGUGGAUGUUUACG 
 ```
 Note that this fails, if the Vienna RNA package with Python binding is not
 available.
@@ -62,7 +98,7 @@ available.
 #### Bi-Alignments of proteins with affine gap cost
 
 ```bash
-./bialign.py RAKLPLKEKKLTATANYHPGIRYIMTGYSAKYIYSSTYARFR KAKLPLKEKKLTRTANYHPGIRYIMTGYSAKRIYSSTYAYFR \
+bialign.py RAKLPLKEKKLTATANYHPGIRYIMTGYSAKYIYSSTYARFR KAKLPLKEKKLTRTANYHPGIRYIMTGYSAKRIYSSTYAYFR \
     --strA "CHHHHHHHHHHHHHCCCCTCEEEEEEECCTCEEEEEEEECCC" --strB "HHHHHHHHHHHHCCCCCCTCEEEEEEECCCCCEEEEEEEECC" \
     --type Protein --shift_cost -150 --structure_weight 800 --simmatrix BLOSUM62 --gap_opening_cost -150 \
     --gap_cost -50 --max_shift 1
@@ -72,7 +108,7 @@ Input can also be read from files as written by the secondary structure predicti
 web server CFSSP (Kumar et al, 2013; http://www.biogem.org/tool/chou-fasman).
 
 ```bash
-./bialign.py --filein Examples/DNAPolymerase1_Escherichia.cfssp Examples/DNAPolymerase1_Xanthomonas.cfssp \
+bialign.py --filein Examples/DNAPolymerase1_Escherichia.cfssp Examples/DNAPolymerase1_Xanthomonas.cfssp \
     --type Protein --shift_cost -150 --structure_weight 800 --simmatrix BLOSUM62 --gap_opening_cost -150 \
     --gap_cost -50 --max_shift 1
 ```
