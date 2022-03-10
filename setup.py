@@ -48,7 +48,7 @@ setup(
     classifiers=[_f for _f in CLASSIFIERS.split('\n') if _f],
     package_dir={'':'src'},
     py_modules=['bialignment_nonpyx'],
-    scripts=['src/bialign.py','src/bialign_triplet.py'],
+    scripts=['src/bialign.py'],
     packages=[],
     zip_safe=False,
     ext_modules = extensions
