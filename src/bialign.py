@@ -43,7 +43,7 @@ def add_bialign_parameters(parser):
     parser.add_argument(
         "--outmode",
         default="default",
-        help="Output mode [call --mode help for a list of options]",
+        help="Output mode [call --outmode help for a list of options]",
     )
 
     parser.add_argument(
