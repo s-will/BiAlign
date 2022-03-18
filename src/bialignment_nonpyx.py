@@ -148,9 +148,23 @@ def plot_alignment(
     show_structure_strings=False,
     name_offset=12,
     show_position_numbers=True,
+    show_inconcruence = True,
     outname=None,
 ):
+    """
+    Plot bialignment
 
+    Plots the bialignment with in several ways, optionally write plot to file
+
+    Args:
+        alilines : alignment strings with names; [(nameA, seqA), (nameB, seqB), ('',strA), ('',strB)]
+        width : width of alignment, if longer break into rows
+        show_structure_strings : switch display of structure strings
+        name_offset : offset for showing names; should be adapted to name length
+        show_positions_numbers : switch display of numbers at start and end of rows
+        show_incongruence : switch display of incongruency bars
+        outname : name of output file (extension controls format; see matplotlib.pyplot.savefig)
+    """
     import matplotlib.pyplot as plt
     from matplotlib.patches import Rectangle
     from collections import defaultdict
@@ -256,6 +270,52 @@ def plot_alignment(
                     )
                 )
 
+    ## store info on incongruence in former blocks/alignment rows
+    incongruence_info = [0,0]
+
+    def draw_incongruence(ax, aa, bb):
+
+        def draw_incongruence_single(k, s, e, num):
+            y = -0.0425 if k==1 else 0.405
+
+            num += 0 # debug
+            if num == 0:
+                return
+
+            color = 'darkred'
+            if num<0:
+                color = 'darkblue'
+
+            num = abs(num)
+
+            if s > e:
+                return
+
+            for i in range(num):
+                o=0
+                if num>1:
+                    o = (i/(num-1)-0.5) * 0.02
+                ax.plot(
+                    [s, e+1],
+                    [y+o, y+o],
+                    linewidth=1,
+                    color=color,
+                    solid_capstyle="butt",
+                )
+
+        starts = [0,0]
+
+        for x, ab in enumerate(zip(aa, bb)):
+            for k,c in enumerate(ab):
+                if c in ['<','>']:
+                    draw_incongruence_single(k,starts[k],x-1,incongruence_info[k])
+                    starts[k] = x+1
+                    incongruence_info[k] += 1 if c=='>' else -1
+
+        for k in range(2):
+            draw_incongruence_single(k,starts[k],x,incongruence_info[k])
+
+
     offset_a = 1
     offset_b = 1
 
@@ -300,6 +360,7 @@ def plot_alignment(
             draw_seq(ax, 0.375, ("", block[4][1].replace(".", " ")))
             draw_seq(ax, -0.075, ("", block[5][1].replace(".", " ")))
             draw_shifts(ax, block[4][1], block[5][1])
+            draw_incongruence(ax, block[4][1], block[5][1])
 
     if outname is not None:
         plt.savefig(outname)
