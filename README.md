@@ -12,7 +12,7 @@ with gap opening and extension scores.
 
 ![](Examples/example.svg)
 
-The first version of this tool has been described in 
+The first version of this tool has been described in
 
 Waldl M., Will S., Wolfinger M.T., Hofacker I.L., Stadler P.F. (2020)
 Bi-alignments as Models of Incongruent Evolution of RNA Sequence and
@@ -76,20 +76,37 @@ bialign.py --help
 
 #### RNA bi-alignment examples
 
-This 'toy' example demonstrates a simple helix shift;
+This 'toy' example demonstrates a simple helix shift:
 
 ```bash
 bialign.py GCGGGGGAUAUCCCCAUCG GGGGAUAUCCCCAUCG \
     --strA "...(((.....)))....." --strB ".(((.....)))...." \
     --structure 400 \
     --gap_opening_cost -200 --gap_cost -50 \
-    --max_shift 0 --shift_cost -150
+    --max_shift 1 --shift_cost -150
+```
+
+Using default text output mode, this produces
+```
+Input:
+seqA	 GCGGGGGAUAUCCCCAUCG
+seqB	 GGGGAUAUCCCCAUCG
+strA	 ...(((.....))).....
+strB	 .(((.....)))....
+SCORE: 6800
+
+A               GCGGGGGAUAUCCCC-AUCG
+B               G---GGGAUAUCCCC-AUCG
+A ss            ...-(((.....))).....
+B ss            .---(((.....)))-....
+A shifts        ...<...........>....
+B shifts        ....................
 ```
 
 Structures will be predicted (using the Vienna RNA package) if they are not
 explicitly given, e.g.
 ```
-bialign.py UGUAAACAUCCUCGACUGGAAGCUGUGAAGCCACAAAUGGGCUUUCAGUCGGAUGUUUGCA UGUAAACAUCCUACACUCAGCUGUCAUACAUGCGUUGGCUGGGAUGUGGAUGUUUACG 
+bialign.py UGUAAACAUCCUCGACUGGAAGCUGUGAAGCCACAAAUGGGCUUUCAGUCGGAUGUUUGCA UGUAAACAUCCUACACUCAGCUGUCAUACAUGCGUUGGCUGGGAUGUGGAUGUUUACG
 ```
 Note that this fails, if the Vienna RNA package with Python binding is not
 available.
@@ -101,8 +118,39 @@ available.
 bialign.py RAKLPLKEKKLTATANYHPGIRYIMTGYSAKYIYSSTYARFR KAKLPLKEKKLTRTANYHPGIRYIMTGYSAKRIYSSTYAYFR \
     --strA "CHHHHHHHHHHHHHCCCCTCEEEEEEECCTCEEEEEEEECCC" --strB "HHHHHHHHHHHHCCCCCCTCEEEEEEECCCCCEEEEEEEECC" \
     --type Protein --shift_cost -150 --structure_weight 800 --simmatrix BLOSUM62 --gap_opening_cost -150 \
-    --gap_cost -50 --max_shift 1
+    --gap_cost -50 --max_shift 1 --outmode sorted
 ```
+
+Due to the requested output mode `sorted`, this produces text output with BLAST-like
+annotation by the respective consensus sequence and structure of
+the sequence and structure alignment component.
+
+```
+Input:
+seqA	 RAKLPLKEKKLTATANYHPGIRYIMTGYSAKYIYSSTYARFR
+seqB	 KAKLPLKEKKLTRTANYHPGIRYIMTGYSAKRIYSSTYAYFR
+strA	 CHHHHHHHHHHHHHCCCCTCEEEEEEECCTCEEEEEEEECCC
+strB	 HHHHHHHHHHHHCCCCCCTCEEEEEEECCCCCEEEEEEEECC
+SCORE: 48500
+
+A ss            -CHHHHHHHHHHHHHCCCCTCEEEEEEECCTCEEEEEEEEC-CC
+A               -RAKLPLKEKKLTATANYHPGIRYIMTGYSAKYIYSSTYAR-FR
+consensus       -.AKLPLKEKKLT.TANYHPGIRYIMTGYSAK.IYSSTYA.-FR
+B               -KAKLPLKEKKLTRTANYHPGIRYIMTGYSAKRIYSSTYAY-FR
+B ss            -HHHHHHHHHHHHCCCCCCTCEEEEEEECCCCCEEEEEEEE-CC
+consensus ss    -.HHHHHHHHHHH..CCCCTCEEEEEEECC.C.EEEEEEE.-CC
+
+A               RAKLPLKEKKLTA-TANYHPGIRYIMTGYSAK-YIYSSTYARFR
+A ss            CHHHHHHHHHHHH-HCCCCTCEEEEEEECCTC-EEEEEEEECCC
+consensus ss    .HHHHHHHHHHHH..CCCCTCEEEEEEECC.C.EEEEEEEE.CC
+B ss            -HHHHHHHHHHHHCCCCCCTCEEEEEEECCCCCEEEEEEEE-CC
+B               -KAKLPLKEKKLTRTANYHPGIRYIMTGYSAKRIYSSTYAY-FR
+consensus       .........K....TANYHPGIRYIMTGYSAK....S.....FR
+
+A shifts        >............<..................<........>..
+B shifts        ............................................
+```
+
 
 Input can also be read from files as written by the secondary structure prediction
 web server CFSSP (Kumar et al, 2013; http://www.biogem.org/tool/chou-fasman).
