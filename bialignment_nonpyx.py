@@ -233,9 +233,11 @@ def plot_alignment(
         ax.text(-name_offset, y, name)
         for x, ch in enumerate(seq):
             weight = "normal"
+            color = 'black' if other is None else 'red'
             if other is not None and ch == other[x]:
                 weight = "bold"
-            ax.text(x, y, ch, weight=weight)
+                color = 'black'
+            ax.text(x, y, ch, weight = weight, color = color)
 
     def draw_shifts(ax, aa, bb):
         for x, (a, b) in enumerate(zip(aa, bb)):

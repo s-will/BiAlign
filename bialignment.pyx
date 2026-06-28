@@ -503,13 +503,18 @@ cdef class BiAligner:
         trace = []
 
         def trace_from(i, j, k, l):
+            possible_arrows = list()
             for x in self.recursion_cases((i, j, k, l)):
                 if guard_case(x[0], (i, j, k, l), self.max_shift):
                     if self.eval_case(x, (i, j, k, l)) == self._M[i, j, k, l]:
                         (io, jo, ko, lo) = x[0]
-                        trace.append((io, jo, ko, lo))
-                        trace_from(i - io, j - jo, k - ko, l - lo)
-                        break
+                        possible_arrows.append((io, jo, ko, lo))
+                        
+            if len(possible_arrows) > 1:
+                print('trace_from', (i,j,k,l), possible_arrows)
+
+            io, jo, ko, lo = possible_arrows[0]
+            trace_from(i - io, j - jo, k - ko, l - lo)
 
         trace_from(lenA, lenB, lenA, lenB)
         return list(reversed(trace))
@@ -517,12 +522,14 @@ cdef class BiAligner:
     # perform traceback
     # @returns list of 'trace arrows'
     def affine_traceback(self):
+        import random
         lenA = self.molA["len"]
         lenB = self.molB["len"]
 
         trace = []
 
         def trace_from(state, idx):
+            possible_arrows = list()
             i, j, k, l = idx
             cdef int cidx[4]
             cidx = idx
@@ -532,9 +539,17 @@ cdef class BiAligner:
                 if guard_case(x[1], idx, self.max_shift):
                     if self.affine_eval_case(x, cidx) == self._M[state][idx]:
                         (io, jo, ko, lo) = x[1]
-                        trace.append([io, jo, ko, lo])
-                        return trace_from(x[0], [i - io, j - jo, k - ko, l - lo])
-            return False
+                        possible_arrows.append(x)
+            
+            if len(possible_arrows) > 1:
+                print('trace_from', idx, possible_arrows)
+            if len(possible_arrows) == 0:
+                return False
+
+            x = random.choice(possible_arrows)
+            (io, jo, ko, lo) = x[1]
+            trace.append([io, jo, ko, lo])
+            return trace_from(x[0], [i - io, j - jo, k - ko, l - lo])
 
         myidx = np.argmax(
             [self._M[state][lenA, lenB, lenA, lenB] for state in self.states]
